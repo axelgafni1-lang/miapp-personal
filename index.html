@@ -517,13 +517,23 @@ function Dashboard({ expenses, categories, wallets, services, currentMonth, curr
 }
 
 function ExpensesView({ expenses, categories, wallets, services, currentMonth, currentYear, onAddClick, onEdit, onDelete, onOpenService }) {
-  const [filter,setFilter]=useState('all'); // all | regular | saving | service
+  const [filter,setFilter]=useState('all'); // all | service | saving | wallet:<id>
   const allMonth=useMemo(()=>expenses.filter(x=>{const d=new Date(x.date);return d.getUTCMonth()===currentMonth&&d.getUTCFullYear()===currentYear;}).sort((a,b)=>new Date(b.date)-new Date(a.date)),[expenses,currentMonth,currentYear]);
 
-  const originOf = x => x.isSaving ? 'saving' : (x.linkedServiceId ? 'service' : 'regular');
-  const filtered = useMemo(()=>filter==='all'?allMonth:allMonth.filter(x=>originOf(x)===filter),[allMonth,filter]);
+  const filtered = useMemo(()=>{
+    if (filter==='all') return allMonth;
+    if (filter==='service') return allMonth.filter(x=>!!x.linkedServiceId);
+    if (filter==='saving') return allMonth.filter(x=>x.isSaving);
+    if (filter.startsWith('wallet:')) return allMonth.filter(x=>x.walletId===filter.slice(7));
+    return allMonth;
+  },[allMonth,filter]);
 
-  const FILTERS=[{id:'all',label:'Todos'},{id:'regular',label:'💸 Manuales'},{id:'service',label:'🔌 Servicios'},{id:'saving',label:'🐷 Ahorros'}];
+  const FILTERS=useMemo(()=>[
+    {id:'all',label:'Todos'},
+    {id:'service',label:'🔌 Servicios'},
+    {id:'saving',label:'🐷 Ahorros'},
+    ...wallets.map(w=>({id:`wallet:${w.id}`,label:w.name}))
+  ],[wallets]);
 
   return h('div',{className:'space-y-4'},
     h('div',{className:'flex justify-between items-center'},h('h3',{className:'text-lg font-black'},'Movimientos'),h('button',{onClick:onAddClick,className:'bg-indigo-600 text-white px-5 py-2 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg'},'+ Nuevo')),
