@@ -96,6 +96,8 @@ const LENS_TYPES = ['Diaria','Mensual','Quincenal','Semanal','Semestral','Anual'
 const uid = () => Math.random().toString(36).substr(2,9);
 const fmt = n => `$${Number(n||0).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 const fmtUSD = n => `US$${Number(n||0).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+const parseAmountInput = s => { const n = parseFloat(String(s||'').replace(/\./g,'').replace(',','.')); return isNaN(n)?0:n; };
+const fmtAmountInput = n => { const num = Number(n); return (!num||isNaN(num))?'':num.toLocaleString('es-AR',{minimumFractionDigits:0,maximumFractionDigits:2}); };
 const todayStr = () => new Date().toISOString().split('T')[0];
 
 // Parsea un string "YYYY-MM-DD" como fecha LOCAL (evita el corrimiento de un día que pasa
@@ -450,7 +452,7 @@ function ExpenseModal({ categories, wallets, onSubmit, onCancel, initialData, is
   const [isSaving] = useState(isSavingContext||(initialData?.isSaving??false));
   const isServiceLinked = !!initialData?.linkedServiceId;
   const [form, setForm] = useState({
-    type:initialData?.type??'expense', amount:initialData?.amount??'',
+    type:initialData?.type??'expense', amount:initialData?.amount?fmtAmountInput(initialData.amount):'',
     description:initialData?.description??'',
     categoryId:initialData?.categoryId??(isSavingContext?savingCat?.id:categories.find(c=>!c.isSavingCategory&&c.id!=='cat-income')?.id??''),
     walletId:initialData?.walletId??wallets[0]?.id??'', date:initialData?.date??todayStr(),
@@ -458,14 +460,14 @@ function ExpenseModal({ categories, wallets, onSubmit, onCancel, initialData, is
   });
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
   const visibleCats=isSaving?categories.filter(c=>c.isSavingCategory):categories.filter(c=>!c.isSavingCategory);
-  const handleSubmit=e=>{e.preventDefault();if(!form.amount||!form.walletId)return;onSubmit({...initialData,...form,amount:parseFloat(form.amount),description:form.description.trim(),isSaving,categoryId:isSaving?savingCat?.id:form.categoryId,currency:isSaving?'USD':form.currency,id:initialData?.id??uid()});};
+  const handleSubmit=e=>{e.preventDefault();if(!form.amount||!form.walletId)return;onSubmit({...initialData,...form,amount:parseAmountInput(form.amount),description:form.description.trim(),isSaving,categoryId:isSaving?savingCat?.id:form.categoryId,currency:isSaving?'USD':form.currency,id:initialData?.id??uid()});};
   return h(Modal,{onClose:onCancel},
     h('form',{onSubmit:handleSubmit,className:'bg-white rounded-t-3xl md:rounded-3xl p-6 space-y-4'},
       h('div',{className:'flex justify-between items-center'},h('h3',{className:'text-lg font-black'},initialData?'Editar Movimiento':(isSaving?'🐷 Ahorro USD':'+ Nuevo Movimiento')),h('button',{type:'button',onClick:onCancel,className:'text-slate-400 text-2xl'},'×')),
       isServiceLinked&&h('p',{className:'text-xs text-amber-700 font-bold bg-amber-50 p-3 rounded-xl'},`🔌 Este movimiento viene del pago del servicio "${initialData.linkedServiceName}". Si editás el monto aquí, el historial del servicio no se actualiza automáticamente.`),
       !isSaving&&h('div',{className:'flex gap-2'},['expense','income'].map(t=>h('button',{key:t,type:'button',onClick:()=>set('type',t),className:`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${form.type===t?(t==='income'?'bg-emerald-500 text-white':'bg-rose-500 text-white'):'bg-slate-100 text-slate-500'}`},t==='income'?'⬆ Ingreso':'⬇ Gasto'))),
       !isSaving&&h('div',{className:'flex gap-2'},['ARS','USD'].map(c=>h('button',{key:c,type:'button',onClick:()=>set('currency',c),className:`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${form.currency===c?'bg-indigo-600 text-white':'bg-slate-100 text-slate-500'}`},c==='ARS'?'$ Pesos':'US$ Dólares'))),
-      h('div',{className:'space-y-1'},h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Monto '+(isSaving?'(USD)':`(${form.currency})`)),h('input',{type:'number',step:'0.01',min:'0',required:true,value:form.amount,onChange:e=>set('amount',e.target.value),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-lg focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 transition-all',placeholder:'0.00'})),
+      h('div',{className:'space-y-1'},h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Monto '+(isSaving?'(USD)':`(${form.currency})`)),h('input',{type:'text',inputMode:'decimal',required:true,value:form.amount,onChange:e=>set('amount',e.target.value.replace(/[^0-9,.]/g,'')),onBlur:()=>{const n=parseAmountInput(form.amount);if(n)set('amount',fmtAmountInput(n));},className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-lg focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 transition-all',placeholder:'0'})),
       h('div',{className:'space-y-1'},h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Descripción (opcional)'),h('input',{type:'text',value:form.description,onChange:e=>set('description',e.target.value),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-indigo-400 transition-all',placeholder:'Ej: Supermercado'})),
       !isSaving&&h('div',{className:'space-y-1'},h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Categoría'),h('select',{value:form.categoryId,onChange:e=>set('categoryId',e.target.value),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-indigo-400 transition-all'},visibleCats.map(c=>h('option',{key:c.id,value:c.id},c.icon+' '+c.name)))),
       h('div',{className:'space-y-1'},h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Billetera / Medio de pago'),h('select',{value:form.walletId,onChange:e=>set('walletId',e.target.value),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-indigo-400 transition-all'},wallets.map(w=>h('option',{key:w.id,value:w.id},w.name)))),
@@ -1021,7 +1023,7 @@ function ServiceDetailView({ service, wallets, setServices, setExpenses, dolarBl
 
   const confirmPay = (e) => {
     e.preventDefault();
-    const enteredAmount = parseFloat(payForm.amount)||0;
+    const enteredAmount = parseAmountInput(payForm.amount);
     let amountARS, amountUSD;
     if (payForm.currency === 'USD') {
       amountUSD = enteredAmount;
@@ -1161,11 +1163,11 @@ function ServiceDetailView({ service, wallets, setServices, setExpenses, dolarBl
             c==='ARS'?'$ Pesos':'US$ Dólares'
           ))
         ),
-        h('div',{className:'space-y-1'},h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},`Monto que vino (${payForm.currency})`),h('input',{type:'number',step:'0.01',min:'0',required:true,placeholder:'Ej: 8500',value:payForm.amount,onChange:e=>setPayForm(f=>({...f,amount:e.target.value})),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-lg focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 transition-all'})),
+        h('div',{className:'space-y-1'},h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},`Monto que vino (${payForm.currency})`),h('input',{type:'text',inputMode:'decimal',required:true,placeholder:'0',value:payForm.amount,onChange:e=>setPayForm(f=>({...f,amount:e.target.value.replace(/[^0-9,.]/g,'')})),onBlur:()=>{const n=parseAmountInput(payForm.amount);if(n)setPayForm(f=>({...f,amount:fmtAmountInput(n)}));},className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-lg focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 transition-all'})),
         dolarBlue&&payForm.amount&&h('p',{className:'text-[11px] text-slate-400 font-bold'},
           payForm.currency==='ARS'
-            ? `Equivale a ${fmtUSD(parseFloat(payForm.amount)/dolarBlue)} al dólar blue de hoy`
-            : `Equivale a ${fmt(parseFloat(payForm.amount)*dolarBlue)} al dólar blue de hoy`
+            ? `Equivale a ${fmtUSD(parseAmountInput(payForm.amount)/dolarBlue)} al dólar blue de hoy`
+            : `Equivale a ${fmt(parseAmountInput(payForm.amount)*dolarBlue)} al dólar blue de hoy`
         ),
         service.payWithWallet!==false
           ? h('p',{className:'text-xs text-indigo-600 font-bold bg-indigo-50 p-3 rounded-xl'},`📊 Esto va a crear un movimiento en Finanzas con la billetera "${wallets.find(w=>w.id===service.walletId)?.name??'—'}"`)
