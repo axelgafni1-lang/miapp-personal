@@ -9,6 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="MiApp">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#1e1b4b">
+  <script src="config.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;900&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
@@ -55,18 +56,9 @@ import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChang
 import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 
 // ── FIREBASE CONFIG ───────────────────────────────────────────────────────────
-const firebaseConfig = {
-  apiKey: "AIzaSyA1ayiZSI2gug98HEW3UBSkBivRt1UQdnQ",
-  authDomain: "miapp-personal-eb5d9.firebaseapp.com",
-  projectId: "miapp-personal-eb5d9",
-  storageBucket: "miapp-personal-eb5d9.firebasestorage.app",
-  messagingSenderId: "201442094664",
-  appId: "1:201442094664:web:0507b9f25c0dafbad5f27d"
-};
-
-// ── TU EMAIL AUTORIZADO ───────────────────────────────────────────────────────
-// Cambiá esto por tu email de Google
-const AUTHORIZED_EMAIL = "axel.gafni1@gmail.com";
+// Las credenciales viven en config.js (gitignoreado). Ver config.example.js.
+const firebaseConfig = window.__APP_CONFIG__.firebase;
+const AUTHORIZED_EMAIL = window.__APP_CONFIG__.authorizedEmail;
 
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
