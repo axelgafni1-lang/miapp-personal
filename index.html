@@ -527,6 +527,8 @@ function ExpensesView({ expenses, categories, wallets, services, currentMonth, c
   const [filter,setFilter]=useState('all'); // all | service | saving | wallet:<id>
   const allMonth=useMemo(()=>expenses.filter(x=>{const d=new Date(x.date);return d.getUTCMonth()===currentMonth&&d.getUTCFullYear()===currentYear;}).sort((a,b)=>new Date(b.date)-new Date(a.date)),[expenses,currentMonth,currentYear]);
 
+  const originOf = x => x.isSaving ? 'saving' : (x.linkedServiceId ? 'service' : 'regular');
+
   const filtered = useMemo(()=>{
     if (filter==='all') return allMonth;
     if (filter==='service') return allMonth.filter(x=>!!x.linkedServiceId);
