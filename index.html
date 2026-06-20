@@ -712,7 +712,7 @@ const WALLET_TYPES = [
   {id:'virtual', label:'📱 Billetera Virtual'},
 ];
 
-function WalletDetailView({ wallet, expenses, categories, dolarBlue, onBack }) {
+function WalletDetailView({ wallet, expenses, categories, dolarBlue, onBack, onEditExpense, onDeleteExpense }) {
   const walletExpenses = useMemo(()=>[...expenses.filter(x=>x.walletId===wallet.id)].sort((a,b)=>new Date(b.date)-new Date(a.date)),[expenses,wallet.id]);
   const balanceARS = useMemo(()=>{
     const wxp = walletExpenses.filter(x=>!x.currency||x.currency==='ARS');
@@ -757,14 +757,18 @@ function WalletDetailView({ wallet, expenses, categories, dolarBlue, onBack }) {
               h('p',{className:'text-[10px] text-slate-400 font-bold uppercase'},fmtDate(x.date))
             )
           ),
-          h('p',{className:`font-black text-sm ${x.type==='income'?'text-emerald-600':'text-slate-900'}`},(x.type==='income'?'+':'-')+(isUSD?fmtUSD(x.amount):fmt(x.amount)))
+          h('div',{className:'flex items-center gap-2'},
+            h('p',{className:`font-black text-sm ${x.type==='income'?'text-emerald-600':'text-slate-900'}`},(x.type==='income'?'+':'-')+(isUSD?fmtUSD(x.amount):fmt(x.amount))),
+            onEditExpense&&h('button',{onClick:()=>onEditExpense(x),className:'text-slate-300 hover:text-indigo-500 transition-colors text-base leading-none'},'✏️'),
+            onDeleteExpense&&h('button',{onClick:()=>onDeleteExpense(x),className:'text-slate-300 hover:text-rose-500 transition-colors text-base leading-none'},'🗑️')
+          )
         );
       })
     )
   );
 }
 
-function WalletsView({ wallets, expenses, categories, dolarBlue, onAddWallet, onUpdateWallet, onDeleteWallet }) {
+function WalletsView({ wallets, expenses, categories, dolarBlue, onAddWallet, onUpdateWallet, onDeleteWallet, onEditExpense, onDeleteExpense }) {
   const [showForm,setShowForm]=useState(false);
   const [editingId,setEditingId]=useState(null);
   const [detailWalletId,setDetailWalletId]=useState(null);
@@ -812,7 +816,7 @@ function WalletsView({ wallets, expenses, categories, dolarBlue, onAddWallet, on
 
   if (detailWalletId) {
     const wallet = wallets.find(w=>w.id===detailWalletId);
-    return h(WalletDetailView,{wallet,expenses,categories,dolarBlue,onBack:()=>setDetailWalletId(null)});
+    return h(WalletDetailView,{wallet,expenses,categories,dolarBlue,onBack:()=>setDetailWalletId(null),onEditExpense,onDeleteExpense});
   }
 
   return h('div',{className:'space-y-4'},
@@ -1565,7 +1569,7 @@ function FinanzasView({ expenses, setExpenses, wallets, setWallets, services, se
       : h(Fragment,null,
           sub==='dashboard'&&h(Dashboard,{expenses,categories,wallets,services,currentMonth,currentYear,onAddClick:()=>openAdd(false),dolarBlue}),
           sub==='expenses'&&h(ExpensesView,{expenses,categories,wallets,services,currentMonth,currentYear,onAddClick:()=>openAdd(false),onEdit:openEdit,onDelete:handleDelete,onOpenService:setDetailServiceId}),
-          sub==='wallets'&&h(WalletsView,{wallets,expenses,categories,dolarBlue,onAddWallet:w=>setWallets(p=>[...p,w]),onUpdateWallet:(id,data)=>setWallets(p=>p.map(w=>w.id===id?{...w,...data,id}:w)),onDeleteWallet:id=>setWallets(p=>p.filter(x=>x.id!==id))}),
+          sub==='wallets'&&h(WalletsView,{wallets,expenses,categories,dolarBlue,onAddWallet:w=>setWallets(p=>[...p,w]),onUpdateWallet:(id,data)=>setWallets(p=>p.map(w=>w.id===id?{...w,...data,id}:w)),onDeleteWallet:id=>setWallets(p=>p.filter(x=>x.id!==id)),onEditExpense:openEdit,onDeleteExpense:handleDelete}),
           sub==='services'&&h(ServicesView,{services,setServices,wallets,setExpenses,dolarBlue,currentMonth,currentYear,onOpenDetail:setDetailServiceId}),
           sub==='savings'&&h(SavingsView,{expenses,dolarBlue,onAddIncome:()=>openAdd(true,'income'),onAddExpense:()=>openAdd(true,'expense'),onEdit:openEdit,onDelete:handleDelete}),
           sub==='reports'&&h(ReportsView,{expenses,categories,wallets,dolarBlue,currentYear})
