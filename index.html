@@ -856,7 +856,12 @@ function ServicesView({ services, setServices, wallets, setExpenses, dolarBlue, 
     const days = daysUntilDue(sv.dueDay);
     let color = 'text-slate-400';
     if (days<=3) color='text-rose-500'; else if (days<=7) color='text-amber-500';
-    return { days, color };
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    let target = new Date(now.getFullYear(), now.getMonth(), sv.dueDay);
+    if (target < today) target = new Date(now.getFullYear(), now.getMonth()+1, sv.dueDay);
+    const dateStr = target.toLocaleDateString('es-AR',{day:'numeric',month:'short'});
+    return { days, color, dateStr };
   };
 
   const activeServices = services.filter(s=>s.active!==false);
@@ -913,7 +918,8 @@ function ServicesView({ services, setServices, wallets, setExpenses, dolarBlue, 
         due&&due.days<=3&&h('div',{className:'absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-rose-500 ping-slow'}),
         h(ServiceLogo,{name:sv.name,size:'w-12 h-12',customLogo:sv.customLogo}),
         h('p',{className:'font-bold text-slate-800 text-xs truncate w-full'},sv.name),
-        h('span',{className:`section-pill text-[8px] ${inactive?'bg-slate-100 text-slate-500':'bg-emerald-50 text-emerald-600'}`},inactive?'Inactivo':'Activo')
+        h('span',{className:`section-pill text-[8px] ${inactive?'bg-slate-100 text-slate-500':'bg-emerald-50 text-emerald-600'}`},inactive?'Inactivo':'Activo'),
+        due&&h('p',{className:`text-[8px] font-black ${due.color}`},due.days===0?'Vence hoy':due.days<0?'Venció':`${due.dateStr}`)
       );
     })),
 
@@ -931,7 +937,8 @@ function ServicesView({ services, setServices, wallets, setExpenses, dolarBlue, 
                 h('p',{className:'text-sm font-bold text-slate-700 truncate'},sv.name),
                 h('p',{className:'text-[9px] text-slate-400 font-bold uppercase'},
                   sv.frequency!=='Mensual' ? `${sv.frequency} ÷ ${FREQUENCY_DIVISOR[sv.frequency]||1}` : 'Mensual',
-                  !hasHistory ? ' · sin historial' : (!isExact ? ' · estimado (último cargado)' : ' · este período')
+                  !hasHistory ? ' · sin historial' : (!isExact ? ' · estimado (último cargado)' : ' · este período'),
+                  (()=>{const d=dueInfo(sv);return d?` · vence ${d.dateStr}`:''})()
                 )
               )
             ),
@@ -1011,7 +1018,16 @@ function ServiceDetailView({ service, wallets, setServices, setExpenses, dolarBl
   if (!service) return h('div',{className:'card p-12 text-center text-slate-400'},h('p',{className:'font-bold'},'Servicio no encontrado'));
 
   const history = useMemo(()=>[...(service.paymentHistory||[])].map(p=>({...p,amountARS:p.amountARS??p.amount??0})).sort((a,b)=>new Date(b.date)-new Date(a.date)),[service]);
-  const due = (service.dueDay && service.active!==false) ? daysUntilDue(service.dueDay) : null;
+  const due = useMemo(()=>{
+    if (!service.dueDay || service.active===false) return null;
+    const days = daysUntilDue(service.dueDay);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    let target = new Date(now.getFullYear(), now.getMonth(), service.dueDay);
+    if (target < today) target = new Date(now.getFullYear(), now.getMonth()+1, service.dueDay);
+    const dateStr = target.toLocaleDateString('es-AR',{day:'numeric',month:'short'});
+    return { days, dateStr };
+  },[service.dueDay, service.active]);
   const inactive = service.active===false;
 
   const withIncrease = useMemo(()=>{
@@ -1084,7 +1100,7 @@ function ServiceDetailView({ service, wallets, setServices, setExpenses, dolarBl
 
   const openEditInfo = () => {
     setEditForm({
-      payer: service.payer||'',
+      name: service.name||'',
       payWithWallet: service.payWithWallet!==false,
       walletId: service.walletId || wallets[0]?.id || '',
       frequency: service.frequency||'Mensual',
@@ -1098,6 +1114,11 @@ function ServiceDetailView({ service, wallets, setServices, setExpenses, dolarBl
     e.preventDefault();
     setServices(prev=>prev.map(s=>s.id===service.id?{...s,...editForm}:s));
     setShowEditForm(false);
+  };
+  const deleteService = () => {
+    if (!confirm(`¿Eliminar "${service.name}" y todo su historial permanentemente? Esta acción no se puede deshacer.`)) return;
+    setServices(prev=>prev.filter(s=>s.id!==service.id));
+    onBack();
   };
 
   return h('div',{className:'space-y-5 fade-up'},
@@ -1118,7 +1139,7 @@ function ServiceDetailView({ service, wallets, setServices, setExpenses, dolarBl
       h('div',{className:'flex gap-3 flex-wrap'},
         service.payer&&h('div',{className:'bg-white/15 rounded-xl px-3 py-2'},h('p',{className:'text-[9px] font-black text-indigo-200 uppercase'},'Paga'),h('p',{className:'text-sm font-bold'},service.payer)),
         h('div',{className:'bg-white/15 rounded-xl px-3 py-2'},h('p',{className:'text-[9px] font-black text-indigo-200 uppercase'},'Billetera'),h('p',{className:'text-sm font-bold'},service.payWithWallet!==false?(wallets.find(w=>w.id===service.walletId)?.name??'—'):'No afecta billetera')),
-        due!=null&&h('div',{className:'bg-white/15 rounded-xl px-3 py-2'},h('p',{className:'text-[9px] font-black text-indigo-200 uppercase'},'Vencimiento'),h('p',{className:'text-sm font-bold'},due===0?'Hoy':due<0?`Venció hace ${Math.abs(due)}d`:`En ${due} días`))
+        due!=null&&h('div',{className:'bg-white/15 rounded-xl px-3 py-2'},h('p',{className:'text-[9px] font-black text-indigo-200 uppercase'},'Vencimiento'),h('p',{className:'text-sm font-bold'},due.days===0?'Hoy':due.days<0?`Venció hace ${Math.abs(due.days)}d`:`${due.dateStr}`),due.days>0&&h('p',{className:'text-[9px] text-indigo-300 font-bold'},`en ${due.days} días`))
       ),
       service.description&&h('p',{className:'text-indigo-200 text-xs font-bold mt-3'},service.description)
     ),
@@ -1161,10 +1182,11 @@ function ServiceDetailView({ service, wallets, setServices, setExpenses, dolarBl
       })
     ),
 
-    h('div',{className:'pt-2'},
+    h('div',{className:'pt-2 space-y-2'},
       inactive
         ? h('button',{onClick:()=>setServices(prev=>prev.map(s=>s.id===service.id?{...s,active:true}:s)),className:'w-full py-3 rounded-2xl font-black text-xs uppercase tracking-widest bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors'},'Reactivar Servicio')
-        : h('button',{onClick:()=>{if(confirm(`¿Dar de baja "${service.name}"? Queda visible con su historial, pero deja de contarse en el total mensual.`))setServices(prev=>prev.map(s=>s.id===service.id?{...s,active:false}:s));},className:'w-full py-3 rounded-2xl font-black text-xs uppercase tracking-widest bg-rose-50 text-rose-600 hover:bg-rose-100 transition-colors'},'Dar de Baja')
+        : h('button',{onClick:()=>{if(confirm(`¿Dar de baja "${service.name}"? Queda visible con su historial, pero deja de contarse en el total mensual.`))setServices(prev=>prev.map(s=>s.id===service.id?{...s,active:false}:s));},className:'w-full py-3 rounded-2xl font-black text-xs uppercase tracking-widest bg-rose-50 text-rose-600 hover:bg-rose-100 transition-colors'},'Dar de Baja'),
+      h('button',{onClick:deleteService,className:'w-full py-3 rounded-2xl font-black text-xs uppercase tracking-widest bg-red-600 text-white hover:bg-red-700 transition-colors'},'🗑️ Eliminar servicio permanentemente')
     ),
 
     showPayForm&&h(Modal,{onClose:()=>setShowPayForm(false)},
@@ -1207,14 +1229,14 @@ function ServiceDetailView({ service, wallets, setServices, setExpenses, dolarBl
           )
         ),
 
+        h('div',{className:'space-y-1'},h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Nombre'),
+          h('input',{required:true,placeholder:'Ej: Netflix',value:editForm.name,onChange:e=>setEF('name',e.target.value),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-indigo-400 transition-all'})
+        ),
+
         h('div',{className:'space-y-1'},h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Frecuencia'),
           h('select',{value:editForm.frequency,onChange:e=>setEF('frequency',e.target.value),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-indigo-400 transition-all'},
             SERVICE_FREQUENCIES.map(f=>h('option',{key:f,value:f},f))
           )
-        ),
-
-        h('div',{className:'space-y-1'},h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'¿Quién paga?'),
-          h('input',{placeholder:'Ej: Yo, Mamá...',value:editForm.payer,onChange:e=>setEF('payer',e.target.value),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-indigo-400 transition-all'})
         ),
 
         h('div',{className:'p-4 bg-slate-50 rounded-2xl space-y-3'},
