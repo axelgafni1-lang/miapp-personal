@@ -842,49 +842,6 @@ function ServicesView({ services, setServices, wallets, setExpenses, dolarBlue, 
   const setF=(k,v)=>setForm(f=>({...f,[k]:v}));
   const logoInputRef = useRef(null);
 
-  // ── CARGA RÁPIDA ──────────────────────────────────────────────────────────────
-  const [showBulk, setShowBulk] = useState(false);
-  const [bulkDate, setBulkDate] = useState(todayStr);
-  const [bulkEntries, setBulkEntries] = useState({});
-  const setBulkEntry = (svId,k,v) => setBulkEntries(p=>({...p,[svId]:{...p[svId],[k]:v}}));
-
-  const openBulk = () => {
-    const entries = {};
-    services.filter(s=>s.active!==false).forEach(sv=>{
-      entries[sv.id]={amount:'',currency:'ARS',walletId:sv.walletId||wallets[0]?.id||''};
-    });
-    setBulkDate(todayStr());
-    setBulkEntries(entries);
-    setShowBulk(true);
-  };
-
-  const confirmBulk = () => {
-    const d = parseLocalDate(bulkDate);
-    const period = `${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
-    const newExpenses = [];
-    const serviceUpdates = {};
-    services.filter(s=>s.active!==false).forEach(sv=>{
-      const entry = bulkEntries[sv.id]||{};
-      const amount = parseAmountInput(entry.amount);
-      if (!amount) return;
-      const currency = entry.currency||'ARS';
-      const walletId = entry.walletId||sv.walletId||wallets[0]?.id;
-      let amountARS, amountUSD;
-      if (currency==='USD') { amountUSD=amount; amountARS=dolarBlue?amount*dolarBlue:0; }
-      else { amountARS=amount; amountUSD=dolarBlue?amount/dolarBlue:null; }
-      let expenseId=null;
-      if (sv.payWithWallet!==false&&walletId) {
-        expenseId=uid();
-        newExpenses.push({id:expenseId,type:'expense',amount:amountARS,description:`Pago servicio: ${sv.name}`,categoryId:'cat-4',walletId,date:bulkDate,isSaving:false,linkedServiceId:sv.id,linkedServiceName:sv.name});
-      }
-      serviceUpdates[sv.id]={id:uid(),date:bulkDate,amountARS,amountUSD,currency,period,dolarBlueAtPayment:dolarBlue,walletId,expenseId};
-    });
-    if (newExpenses.length) setExpenses(prev=>[...newExpenses,...prev]);
-    setServices(prev=>prev.map(s=>{const pmt=serviceUpdates[s.id];if(!pmt)return s;return{...s,paymentHistory:[...(s.paymentHistory||[]),pmt]};}));
-    setShowBulk(false);
-    setBulkEntries({});
-  };
-
   const handleLogoUpload = e => {
     const file = e.target.files[0];
     if (!file) return;
@@ -969,10 +926,7 @@ function ServicesView({ services, setServices, wallets, setExpenses, dolarBlue, 
   return h('div',{className:'space-y-4'},
     h('div',{className:'flex justify-between items-center'},
       h('h3',{className:'text-lg font-black'},'Servicios'),
-      h('div',{className:'flex gap-2'},
-        services.filter(s=>s.active!==false).length>0&&h('button',{onClick:openBulk,className:'bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg'},'⚡ Carga rápida'),
-        h('button',{onClick:openAdd,className:'bg-indigo-600 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg'},'+ Nuevo')
-      )
+      h('button',{onClick:openAdd,className:'bg-indigo-600 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg'},'+ Nuevo')
     ),
     services.length===0?h('div',{className:'card p-12 text-center text-slate-400'},h('p',{className:'text-4xl mb-2'},'🔌'),h('p',{className:'font-bold'},'Sin servicios')):
     h('div',{className:'grid grid-cols-3 sm:grid-cols-4 gap-3'},sortedServices.map(sv=>{
@@ -1064,56 +1018,6 @@ function ServicesView({ services, setServices, wallets, setExpenses, dolarBlue, 
         )
       )
     ),
-    showBulk&&h(Modal,{onClose:()=>setShowBulk(false)},
-      h('div',{className:'bg-white rounded-t-3xl md:rounded-3xl p-6 space-y-4'},
-        h('div',{className:'flex justify-between items-center'},
-          h('div',null,
-            h('h3',{className:'text-lg font-black'},'⚡ Carga rápida'),
-            h('p',{className:'text-[11px] text-slate-400 font-bold'},'Completá solo los servicios que querés registrar')
-          ),
-          h('button',{type:'button',onClick:()=>setShowBulk(false),className:'text-slate-400 text-2xl'},'×')
-        ),
-        h('div',{className:'space-y-1'},
-          h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Fecha (aplica a todos)'),
-          h('input',{type:'date',value:bulkDate,onChange:e=>setBulkDate(e.target.value),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-indigo-400 transition-all'})
-        ),
-        h('div',{className:'space-y-3 max-h-[55vh] overflow-y-auto pr-1'},
-          services.filter(s=>s.active!==false).map(sv=>{
-            const entry = bulkEntries[sv.id]||{amount:'',currency:'ARS',walletId:sv.walletId||wallets[0]?.id||''};
-            const filled = !!parseAmountInput(entry.amount);
-            return h('div',{key:sv.id,className:`rounded-2xl border-2 p-3 space-y-2 transition-all ${filled?'border-indigo-300 bg-indigo-50':'border-slate-100 bg-slate-50'}`},
-              h('div',{className:'flex items-center gap-2 mb-1'},
-                h(ServiceLogo,{name:sv.name,size:'w-7 h-7',customLogo:sv.customLogo}),
-                h('p',{className:'font-black text-sm text-slate-800'},sv.name),
-                filled&&h('span',{className:'ml-auto text-[9px] font-black text-indigo-600 bg-indigo-100 px-2 py-0.5 rounded-full'},'✓ listo')
-              ),
-              h('div',{className:'flex gap-2'},
-                h('input',{type:'text',inputMode:'decimal',placeholder:'Monto',value:entry.amount,
-                  onChange:e=>setBulkEntry(sv.id,'amount',e.target.value.replace(/[^0-9,.]/g,'')),
-                  onBlur:()=>{const n=parseAmountInput(entry.amount);if(n)setBulkEntry(sv.id,'amount',fmtAmountInput(n));},
-                  className:'flex-1 px-3 py-2 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm focus:border-indigo-400 transition-all'}),
-                h('div',{className:'flex rounded-xl overflow-hidden border border-slate-200'},
-                  ['ARS','USD'].map(c=>h('button',{key:c,type:'button',onClick:()=>setBulkEntry(sv.id,'currency',c),
-                    className:`px-2 py-2 text-[10px] font-black transition-all ${entry.currency===c?'bg-indigo-600 text-white':'bg-white text-slate-500'}`},c))
-                )
-              ),
-              sv.payWithWallet!==false&&wallets.length>0&&h('select',{value:entry.walletId,onChange:e=>setBulkEntry(sv.id,'walletId',e.target.value),
-                className:'w-full px-3 py-2 bg-white border border-slate-200 rounded-xl outline-none font-bold text-xs focus:border-indigo-400 transition-all'},
-                wallets.map(w=>h('option',{key:w.id,value:w.id},w.name))
-              )
-            );
-          })
-        ),
-        h('div',{className:'flex gap-3 pt-2'},
-          h('button',{type:'button',onClick:()=>setShowBulk(false),className:'flex-1 py-3 rounded-2xl font-black text-xs bg-slate-100 text-slate-600'},'Cancelar'),
-          h('button',{type:'button',onClick:confirmBulk,
-            disabled:!Object.values(bulkEntries).some(e=>parseAmountInput(e.amount)>0),
-            className:'flex-1 py-3 rounded-2xl font-black text-xs bg-indigo-600 text-white disabled:opacity-40 shadow-lg shadow-indigo-200'},
-            `Registrar (${Object.values(bulkEntries).filter(e=>parseAmountInput(e.amount)>0).length} servicios)`
-          )
-        )
-      )
-    ),
     showForm&&h(Modal,{onClose:()=>{setShowForm(false);setEditingId(null);}},
       h('form',{onSubmit:handleAdd,className:'bg-white rounded-t-3xl md:rounded-3xl p-6 space-y-4'},
         h('div',{className:'flex justify-between items-center'},h('h3',{className:'text-lg font-black'},editingId?'Editar Servicio':'Nuevo Servicio'),h('button',{type:'button',onClick:()=>{setShowForm(false);setEditingId(null);},className:'text-slate-400 text-2xl'},'×')),
@@ -1167,6 +1071,8 @@ function ServicesView({ services, setServices, wallets, setExpenses, dolarBlue, 
 function ServiceDetailView({ service, wallets, setServices, setExpenses, dolarBlue, onBack }) {
   const [showPayForm, setShowPayForm] = useState(false);
   const [payForm, setPayForm] = useState({ date: todayStr(), amount: '', currency: 'ARS', period: '' });
+  const [showBulkMonths, setShowBulkMonths] = useState(false);
+  const [bulkMonths, setBulkMonths] = useState([]);
   const [showEditForm, setShowEditForm] = useState(false);
   const [editForm, setEditForm] = useState(null);
   const [editingPeriodId, setEditingPeriodId] = useState(null);
@@ -1206,6 +1112,43 @@ function ServiceDetailView({ service, wallets, setServices, setExpenses, dolarBl
   };
 
   const openPay = () => { const today=todayStr(); setPayForm({date:today,amount:'',currency:'ARS',period:suggestPeriod(today),walletId:service.walletId||wallets[0]?.id||''}); setShowPayForm(true); };
+
+  const openBulkMonths = () => {
+    const freqMonths = FREQUENCY_MONTHS[service.frequency]||1;
+    const defaultWallet = service.walletId||wallets[0]?.id||'';
+    const rows = [];
+    const now = new Date();
+    for (let i=5; i>=0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth()-i*freqMonths, service.dueDay||1);
+      const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      rows.push({id:String(i),date:dateStr,amount:'',currency:'ARS',walletId:defaultWallet,period:suggestPeriod(dateStr)});
+    }
+    setBulkMonths(rows);
+    setShowBulkMonths(true);
+  };
+
+  const updateBulkMonth = (id,k,v) => setBulkMonths(prev=>prev.map(r=>r.id===id?{...r,[k]:v}:r));
+
+  const confirmBulkMonths = () => {
+    const newExpenses = [];
+    const newPayments = [];
+    bulkMonths.forEach(row=>{
+      const amount = parseAmountInput(row.amount);
+      if (!amount) return;
+      let amountARS, amountUSD;
+      if (row.currency==='USD') { amountUSD=amount; amountARS=dolarBlue?amount*dolarBlue:0; }
+      else { amountARS=amount; amountUSD=dolarBlue?amount/dolarBlue:null; }
+      let expenseId=null;
+      if (service.payWithWallet!==false&&row.walletId) {
+        expenseId=uid();
+        newExpenses.push({id:expenseId,type:'expense',amount:amountARS,description:`Pago servicio: ${service.name}`,categoryId:'cat-4',walletId:row.walletId,date:row.date,isSaving:false,linkedServiceId:service.id,linkedServiceName:service.name});
+      }
+      newPayments.push({id:uid(),date:row.date,amountARS,amountUSD,currency:row.currency,period:row.period,dolarBlueAtPayment:dolarBlue,walletId:row.walletId,expenseId});
+    });
+    if (newExpenses.length) setExpenses(prev=>[...newExpenses,...prev]);
+    setServices(prev=>prev.map(s=>s.id===service.id?{...s,paymentHistory:[...(s.paymentHistory||[]),...newPayments]}:s));
+    setShowBulkMonths(false);
+  };
 
   const confirmPay = (e) => {
     e.preventDefault();
@@ -1293,14 +1236,17 @@ function ServiceDetailView({ service, wallets, setServices, setExpenses, dolarBl
         )
       ),
       h('div',{className:'flex gap-3 flex-wrap'},
-        service.payer&&h('div',{className:'bg-white/15 rounded-xl px-3 py-2'},h('p',{className:'text-[9px] font-black text-indigo-200 uppercase'},'Paga'),h('p',{className:'text-sm font-bold'},service.payer)),
+        service.payer&&service.payWithWallet===false&&h('div',{className:'bg-white/15 rounded-xl px-3 py-2'},h('p',{className:'text-[9px] font-black text-indigo-200 uppercase'},'Paga'),h('p',{className:'text-sm font-bold'},service.payer)),
         h('div',{className:'bg-white/15 rounded-xl px-3 py-2'},h('p',{className:'text-[9px] font-black text-indigo-200 uppercase'},service.payWithWallet!==false?'Billetera':'Paga'),h('p',{className:'text-sm font-bold'},service.payWithWallet!==false?(wallets.find(w=>w.id===service.walletId)?.name??'—'):'Tercero')),
         due!=null&&h('div',{className:'bg-white/15 rounded-xl px-3 py-2'},h('p',{className:'text-[9px] font-black text-indigo-200 uppercase'},'Vencimiento'),h('p',{className:'text-sm font-bold'},due.days===0?'Hoy':due.days<0?`Venció hace ${Math.abs(due.days)}d`:`${due.dateStr}`),due.days>0&&h('p',{className:'text-[9px] text-indigo-300 font-bold'},`en ${due.days} días`))
       ),
       service.description&&h('p',{className:'text-indigo-200 text-xs font-bold mt-3'},service.description)
     ),
 
-    !inactive&&h('button',{onClick:openPay,className:'w-full py-4 rounded-2xl font-black text-sm uppercase tracking-widest bg-indigo-600 text-white shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all'},'+ Registrar monto del vencimiento'),
+    !inactive&&h('div',{className:'flex gap-2'},
+      h('button',{onClick:openPay,className:'flex-1 py-4 rounded-2xl font-black text-sm uppercase tracking-widest bg-indigo-600 text-white shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all'},'+ Registrar monto'),
+      h('button',{onClick:openBulkMonths,className:'py-4 px-4 rounded-2xl font-black text-sm bg-emerald-500 text-white shadow-lg shadow-emerald-200 hover:bg-emerald-600 transition-all',title:'Carga rápida varios meses'},'⚡')
+    ),
 
     h('div',{className:'grid grid-cols-2 gap-3'},
       h('div',{className:'card p-5'},h('p',{className:'text-[10px] font-black text-slate-400 uppercase mb-1'},'Pagos Registrados'),h('h2',{className:'text-2xl font-black text-slate-800'},history.length)),
@@ -1345,6 +1291,50 @@ function ServiceDetailView({ service, wallets, setServices, setExpenses, dolarBl
       h('button',{onClick:deleteService,className:'w-full py-3 rounded-2xl font-black text-xs uppercase tracking-widest bg-red-600 text-white hover:bg-red-700 transition-colors'},'🗑️ Eliminar servicio permanentemente')
     ),
 
+    showBulkMonths&&h(Modal,{onClose:()=>setShowBulkMonths(false)},
+      h('div',{className:'bg-white rounded-t-3xl md:rounded-3xl p-6 space-y-4'},
+        h('div',{className:'flex justify-between items-center'},
+          h('div',null,
+            h('h3',{className:'text-lg font-black'},'⚡ Carga rápida'),
+            h('p',{className:'text-[11px] text-slate-400 font-bold'},'Completá los meses que querés registrar de una sola vez')
+          ),
+          h('button',{type:'button',onClick:()=>setShowBulkMonths(false),className:'text-slate-400 text-2xl'},'×')
+        ),
+        h('div',{className:'space-y-2 max-h-[60vh] overflow-y-auto pr-1'},
+          bulkMonths.map(row=>{
+            const filled = !!parseAmountInput(row.amount);
+            return h('div',{key:row.id,className:`rounded-2xl border-2 p-3 space-y-2 transition-all ${filled?'border-indigo-300 bg-indigo-50':'border-slate-100 bg-slate-50'}`},
+              h('div',{className:'flex items-center justify-between'},
+                h('p',{className:'text-xs font-black text-slate-700'},row.period),
+                filled&&h('span',{className:'text-[9px] font-black text-indigo-600 bg-indigo-100 px-2 py-0.5 rounded-full'},'✓ listo')
+              ),
+              h('div',{className:'flex gap-2'},
+                h('input',{type:'text',inputMode:'decimal',placeholder:'Monto',value:row.amount,
+                  onChange:e=>updateBulkMonth(row.id,'amount',e.target.value.replace(/[^0-9,.]/g,'')),
+                  onBlur:()=>{const n=parseAmountInput(row.amount);if(n)updateBulkMonth(row.id,'amount',fmtAmountInput(n));},
+                  className:'flex-1 px-3 py-2 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm focus:border-indigo-400 transition-all'}),
+                h('div',{className:'flex rounded-xl overflow-hidden border border-slate-200'},
+                  ['ARS','USD'].map(c=>h('button',{key:c,type:'button',onClick:()=>updateBulkMonth(row.id,'currency',c),
+                    className:`px-2 py-2 text-[10px] font-black transition-all ${row.currency===c?'bg-indigo-600 text-white':'bg-white text-slate-500'}`},c))
+                )
+              ),
+              service.payWithWallet!==false&&wallets.length>0&&h('select',{value:row.walletId,onChange:e=>updateBulkMonth(row.id,'walletId',e.target.value),
+                className:'w-full px-3 py-2 bg-white border border-slate-200 rounded-xl outline-none font-bold text-xs focus:border-indigo-400 transition-all'},
+                wallets.map(w=>h('option',{key:w.id,value:w.id},w.name))
+              )
+            );
+          })
+        ),
+        h('div',{className:'flex gap-3 pt-2'},
+          h('button',{type:'button',onClick:()=>setShowBulkMonths(false),className:'flex-1 py-3 rounded-2xl font-black text-xs bg-slate-100 text-slate-600'},'Cancelar'),
+          h('button',{type:'button',onClick:confirmBulkMonths,
+            disabled:!bulkMonths.some(r=>parseAmountInput(r.amount)>0),
+            className:'flex-1 py-3 rounded-2xl font-black text-xs bg-indigo-600 text-white disabled:opacity-40 shadow-lg shadow-indigo-200'},
+            `Registrar (${bulkMonths.filter(r=>parseAmountInput(r.amount)>0).length} meses)`
+          )
+        )
+      )
+    ),
     showPayForm&&h(Modal,{onClose:()=>setShowPayForm(false)},
       h('form',{onSubmit:confirmPay,className:'bg-white rounded-t-3xl md:rounded-3xl p-6 space-y-4'},
         h('div',{className:'flex justify-between items-center'},h('h3',{className:'text-lg font-black'},'Registrar Monto'),h('button',{type:'button',onClick:()=>setShowPayForm(false),className:'text-slate-400 text-2xl'},'×')),
