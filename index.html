@@ -459,7 +459,7 @@ function SaludView({ lenses, setLenses, lensStock, setLensStock, purchases, setP
 }
 
 // ── EXPENSE MODAL ─────────────────────────────────────────────────────────────
-function ExpenseModal({ categories, wallets, onSubmit, onCancel, initialData, isSavingContext }) {
+function ExpenseModal({ categories, wallets, onSubmit, onCancel, onAddCategory, initialData, isSavingContext }) {
   const savingCat = categories.find(c=>c.isSavingCategory);
   const [isSaving] = useState(isSavingContext||(initialData?.isSaving??false));
   const isServiceLinked = !!initialData?.linkedServiceId;
@@ -470,9 +470,21 @@ function ExpenseModal({ categories, wallets, onSubmit, onCancel, initialData, is
     walletId:initialData?.walletId??wallets[0]?.id??'', date:initialData?.date??todayStr(),
     currency: isSaving ? 'USD' : (initialData?.currency??'ARS'),
   });
+  const [newCatName, setNewCatName] = useState('');
+  const [showNewCat, setShowNewCat] = useState(false);
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
   const visibleCats=isSaving?categories.filter(c=>c.isSavingCategory):categories.filter(c=>!c.isSavingCategory);
   const handleSubmit=e=>{e.preventDefault();if(!form.amount||!form.walletId)return;onSubmit({...initialData,...form,amount:parseAmountInput(form.amount),description:form.description.trim(),isSaving,categoryId:isSaving?savingCat?.id:form.categoryId,currency:isSaving?'USD':form.currency,id:initialData?.id??uid()});};
+  const handleAddCat = () => {
+    const name = newCatName.trim();
+    if (!name) return;
+    const icon = guessEmoji(name);
+    const cat = { id: uid(), name, icon, color: '#6B7280' };
+    onAddCategory(cat);
+    set('categoryId', cat.id);
+    setNewCatName('');
+    setShowNewCat(false);
+  };
   return h(Modal,{onClose:onCancel},
     h('form',{onSubmit:handleSubmit,className:'bg-white rounded-t-3xl md:rounded-3xl p-6 space-y-4'},
       h('div',{className:'flex justify-between items-center'},h('h3',{className:'text-lg font-black'},initialData?'Editar Movimiento':(isSaving?'🐷 Ahorro USD':'+ Nuevo Movimiento')),h('button',{type:'button',onClick:onCancel,className:'text-slate-400 text-2xl'},'×')),
@@ -481,7 +493,23 @@ function ExpenseModal({ categories, wallets, onSubmit, onCancel, initialData, is
       !isSaving&&h('div',{className:'flex gap-2'},['ARS','USD'].map(c=>h('button',{key:c,type:'button',onClick:()=>set('currency',c),className:`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${form.currency===c?'bg-indigo-600 text-white':'bg-slate-100 text-slate-500'}`},c==='ARS'?'$ Pesos':'US$ Dólares'))),
       h('div',{className:'space-y-1'},h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Monto '+(isSaving?'(USD)':`(${form.currency})`)),h('input',{type:'text',inputMode:'decimal',required:true,value:form.amount,onChange:e=>set('amount',fmtWhileTyping(e.target.value)),onBlur:()=>{const n=parseAmountInput(form.amount);if(n)set('amount',fmtAmountInput(n));},className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-lg focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 transition-all',placeholder:'0'})),
       h('div',{className:'space-y-1'},h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Descripción (opcional)'),h('input',{type:'text',value:form.description,onChange:e=>set('description',e.target.value),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-indigo-400 transition-all',placeholder:'Ej: Supermercado'})),
-      !isSaving&&h('div',{className:'space-y-1'},h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Categoría'),h('select',{value:form.categoryId,onChange:e=>set('categoryId',e.target.value),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-indigo-400 transition-all'},visibleCats.map(c=>h('option',{key:c.id,value:c.id},c.icon+' '+c.name)))),
+      !isSaving&&h('div',{className:'space-y-2'},
+        h('div',{className:'flex items-center justify-between'},
+          h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Categoría'),
+          h('button',{type:'button',onClick:()=>setShowNewCat(v=>!v),className:'text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:text-indigo-800 transition-colors'},showNewCat?'✕ Cancelar':'+ Nueva')
+        ),
+        showNewCat
+          ? h('div',{className:'flex gap-2'},
+              h('div',{className:'flex-1 relative'},
+                h('span',{className:'absolute left-3 top-1/2 -translate-y-1/2 text-lg pointer-events-none'},guessEmoji(newCatName)),
+                h('input',{type:'text',autoFocus:true,placeholder:'Ej: Mascotas, Gym...',value:newCatName,onChange:e=>setNewCatName(e.target.value),onKeyDown:e=>{if(e.key==='Enter'){e.preventDefault();handleAddCat();}},className:'w-full pl-9 pr-3 py-3 bg-slate-50 border border-indigo-300 rounded-2xl outline-none font-bold text-sm focus:border-indigo-500 transition-all'})
+              ),
+              h('button',{type:'button',onClick:handleAddCat,disabled:!newCatName.trim(),className:'px-4 py-3 bg-indigo-600 text-white rounded-2xl font-black text-xs disabled:opacity-40 transition-all'},'Crear')
+            )
+          : h('select',{value:form.categoryId,onChange:e=>set('categoryId',e.target.value),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-indigo-400 transition-all'},
+              visibleCats.map(c=>h('option',{key:c.id,value:c.id},c.icon+' '+c.name))
+            )
+      ),
       h('div',{className:'space-y-1'},h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Billetera / Medio de pago'),h('select',{value:form.walletId,onChange:e=>set('walletId',e.target.value),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-indigo-400 transition-all'},wallets.map(w=>h('option',{key:w.id,value:w.id},w.name)))),
       h('div',{className:'space-y-1'},h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Fecha'),h('input',{type:'date',value:form.date,onChange:e=>set('date',e.target.value),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-indigo-400 transition-all'})),
       h('button',{type:'submit',className:'w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all'},initialData?'Guardar Cambios':'+ Agregar')
@@ -645,6 +673,30 @@ const BrandLogo = ({ name, size='w-10 h-10', customLogo }) => {
 };
 // Alias para no romper referencias existentes
 const ServiceLogo = BrandLogo;
+
+const guessEmoji = (name) => {
+  const n = (name||'').toLowerCase();
+  if (n.match(/super|mercado|almac[eé]n|verdur|carnic|fiamb/)) return '🛒';
+  if (n.match(/comida|restaurant|almuerzo|cena|pizza|sushi|hamburgues/)) return '🍔';
+  if (n.match(/cafe|kiosco|snack|medialunas|facturas|confiteria/)) return '☕';
+  if (n.match(/bar|cerveza|trago|boliche|disco|salida nocturna/)) return '🍺';
+  if (n.match(/nafta|combustible|estacion|peaje/)) return '⛽';
+  if (n.match(/transport|colect|subte|taxi|uber|remis|auto|moto/)) return '🚗';
+  if (n.match(/salud|medic|farmac|doctor|clinica|dental|psicologo/)) return '🩺';
+  if (n.match(/educ|escuela|colegio|facultad|curso|libro|estudio/)) return '📚';
+  if (n.match(/ropa|vestim|zapatilla|calzado|indument|jean/)) return '👗';
+  if (n.match(/deporte|gym|fitness|natacion|futbol|tenis|crossfit/)) return '💪';
+  if (n.match(/viaje|hotel|vuelo|turismo|hospedaje|airbnb/)) return '✈️';
+  if (n.match(/casa|alquiler|hogar|expensas|inmueble/)) return '🏠';
+  if (n.match(/mascota|perro|gato|veterinaria|petshop/)) return '🐾';
+  if (n.match(/regalo|cumple|festejo/)) return '🎁';
+  if (n.match(/tecno|celular|comput|tablet|notebook|electro/)) return '💻';
+  if (n.match(/banco|prestamo|deuda|credito|cuota/)) return '🏦';
+  if (n.match(/belleza|peluquer|estetica|cosmet/)) return '💄';
+  if (n.match(/limpieza|detergente|escoba|servilleta/)) return '🧹';
+  if (n.match(/cine|entret|teatro|concierto|streaming/)) return '🎬';
+  return '📦';
+};
 
 const WALLET_TYPES = [
   {id:'cash', label:'💵 Efectivo'},
@@ -1469,7 +1521,7 @@ function ReportsView({ expenses, categories, wallets, dolarBlue, currentYear }) 
   );
 }
 
-function FinanzasView({ expenses, setExpenses, wallets, setWallets, services, setServices, categories, dolarBlue, currentMonth, currentYear }) {
+function FinanzasView({ expenses, setExpenses, wallets, setWallets, services, setServices, categories, setCategories, dolarBlue, currentMonth, currentYear }) {
   const [sub,setSub]=useState('dashboard');
   const [showModal,setShowModal]=useState(false);
   const [editingExp,setEditingExp]=useState(null);
@@ -1504,7 +1556,7 @@ function FinanzasView({ expenses, setExpenses, wallets, setWallets, services, se
           sub==='savings'&&h(SavingsView,{expenses,dolarBlue,onAddClick:()=>openAdd(true),onEdit:openEdit,onDelete:handleDelete}),
           sub==='reports'&&h(ReportsView,{expenses,categories,wallets,dolarBlue,currentYear})
         ),
-    showModal&&h(ExpenseModal,{categories,wallets,onSubmit:handleSubmit,onCancel:()=>{setShowModal(false);setEditingExp(null);},initialData:editingExp,isSavingContext:isSavingCtx})
+    showModal&&h(ExpenseModal,{categories,wallets,onSubmit:handleSubmit,onCancel:()=>{setShowModal(false);setEditingExp(null);},onAddCategory:cat=>{setCategories(prev=>[...prev,cat]);},initialData:editingExp,isSavingContext:isSavingCtx})
   );
 }
 
@@ -1590,11 +1642,11 @@ function App() {
   const [purchases, setPurchasesRaw] = useState([]);
   const [haircuts,  setHaircutsRaw]  = useState([]);
   const [lensStock, setLensStockRaw] = useState(0);
-  const [dolarBlue, setDolarBlue]    = useState(1000);
-  const [tab,       setTab]          = useState('home');
-  const [month,     setMonth]        = useState(currentM);
-  const [year,      setYear]         = useState(currentY);
-  const categories = DEFAULT_CATS;
+  const [dolarBlue,     setDolarBlue]     = useState(1000);
+  const [tab,           setTab]           = useState('home');
+  const [month,         setMonth]         = useState(currentM);
+  const [year,          setYear]          = useState(currentY);
+  const [categoriesRaw, setCategoriesRaw] = useState(DEFAULT_CATS);
 
   // Save wrapper — auto-saves to Firestore on every change
   const makeSet = (key, setter) => (valOrFn) => {
@@ -1607,9 +1659,11 @@ function App() {
     });
   };
 
-  const setExpenses  = makeSet('expenses',  setExpensesRaw);
-  const setWallets   = makeSet('wallets',   setWalletsRaw);
-  const setServices  = makeSet('services',  setServicesRaw);
+  const setExpenses    = makeSet('expenses',    setExpensesRaw);
+  const setWallets     = makeSet('wallets',     setWalletsRaw);
+  const setServices    = makeSet('services',    setServicesRaw);
+  const setCategories  = makeSet('categories',  setCategoriesRaw);
+  const categories     = categoriesRaw;
   const setLenses    = makeSet('lenses',    setLensesRaw);
   const setPurchases = makeSet('purchases', setPurchasesRaw);
   const setHaircuts  = makeSet('haircuts',  setHaircutsRaw);
@@ -1633,13 +1687,14 @@ function App() {
         const snap = await getDoc(getUserDocRef(firebaseUser.uid));
         if (snap.exists()) {
           const d = snap.data();
-          if (d.expenses)  setExpensesRaw(d.expenses);
-          if (d.wallets)   setWalletsRaw(d.wallets);
-          if (d.services)  setServicesRaw(d.services);
-          if (d.lenses)    setLensesRaw(d.lenses);
-          if (d.purchases) setPurchasesRaw(d.purchases);
-          if (d.haircuts)  setHaircutsRaw(d.haircuts);
+          if (d.expenses)    setExpensesRaw(d.expenses);
+          if (d.wallets)     setWalletsRaw(d.wallets);
+          if (d.services)    setServicesRaw(d.services);
+          if (d.lenses)      setLensesRaw(d.lenses);
+          if (d.purchases)   setPurchasesRaw(d.purchases);
+          if (d.haircuts)    setHaircutsRaw(d.haircuts);
           if (d.lensStock != null) setLensStockRaw(d.lensStock);
+          if (d.categories)  setCategoriesRaw([...DEFAULT_CATS, ...d.categories.filter(c=>!DEFAULT_CATS.some(dc=>dc.id===c.id))]);
         }
       } catch(e) { console.error('Load error:', e); }
       setDataLoading(false);
@@ -1736,7 +1791,7 @@ function App() {
     // Main
     h('main',{className:'p-5 max-w-5xl mx-auto'},
       tab==='home'     && h(HomeView,{expenses,wallets,services,lenses,haircuts,lensStock,dolarBlue,currentMonth:month,currentYear:year,setTab}),
-      tab==='finanzas' && h(FinanzasView,{expenses,setExpenses,wallets,setWallets,services,setServices,categories,dolarBlue,currentMonth:month,currentYear:year}),
+      tab==='finanzas' && h(FinanzasView,{expenses,setExpenses,wallets,setWallets,services,setServices,categories,setCategories,dolarBlue,currentMonth:month,currentYear:year}),
       tab==='salud'    && h(SaludView,{lenses,setLenses,lensStock,setLensStock,purchases,setPurchases,haircuts,setHaircuts}),
       tab==='ajustes'  && h(AjustesView,{onExport:handleExport,onImport:handleImport,onSignOut:handleSignOut,userEmail:user?.email})
     ),
