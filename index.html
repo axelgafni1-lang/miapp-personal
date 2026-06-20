@@ -539,7 +539,6 @@ function ExpensesView({ expenses, categories, wallets, services, currentMonth, c
 
   const FILTERS=useMemo(()=>[
     {id:'all',label:'Todos'},
-    {id:'service',label:'🔌 Servicios'},
     {id:'saving',label:'🐷 Ahorros'},
     ...wallets.map(w=>({id:`wallet:${w.id}`,label:w.name}))
   ],[wallets]);
