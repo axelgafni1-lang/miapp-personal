@@ -739,8 +739,8 @@ function WalletDetailView({ wallet, expenses, categories, dolarBlue, onBack, onE
         )
       ),
       h('div',{className:'flex gap-3 flex-wrap'},
-        h('div',{className:'bg-white/15 rounded-xl px-3 py-2'},h('p',{className:'text-[9px] font-black text-white/70 uppercase'},'Saldo ARS'),h('p',{className:'text-sm font-bold'},fmt(balanceARS))),
-        h('div',{className:'bg-white/15 rounded-xl px-3 py-2'},h('p',{className:'text-[9px] font-black text-white/70 uppercase'},'Saldo USD'),h('p',{className:'text-sm font-bold'},fmtUSD(balanceUSD)))
+        wallet.currencies!=='USD'&&h('div',{className:'bg-white/15 rounded-xl px-3 py-2'},h('p',{className:'text-[9px] font-black text-white/70 uppercase'},'Saldo ARS'),h('p',{className:'text-sm font-bold'},fmt(balanceARS))),
+        (wallet.currencies==='USD'||wallet.currencies==='both'||balanceUSD!==0)&&h('div',{className:'bg-white/15 rounded-xl px-3 py-2'},h('p',{className:'text-[9px] font-black text-white/70 uppercase'},'Saldo USD'),h('p',{className:'text-sm font-bold'},fmtUSD(balanceUSD)))
       )
     ),
     h('div',{className:'space-y-3'},
@@ -753,7 +753,7 @@ function WalletDetailView({ wallet, expenses, categories, dolarBlue, onBack, onE
           h('div',{className:'flex items-center gap-3'},
             h('div',{className:'w-9 h-9 rounded-xl bg-slate-50 flex items-center justify-center text-lg'},cat?.icon??'💸'),
             h('div',null,
-              h('p',{className:'text-sm font-bold text-slate-800'},x.description),
+              h('p',{className:'text-sm font-bold text-slate-800'},x.description||(x.isSaving?'Ahorro':(cat?.name??'Movimiento'))),
               h('p',{className:'text-[10px] text-slate-400 font-bold uppercase'},fmtDate(x.date))
             )
           ),
@@ -1161,11 +1161,9 @@ function ServiceDetailView({ service, wallets, setServices, setExpenses, dolarBl
     reader.readAsDataURL(file);
   };
 
-  if (!service) return h('div',{className:'card p-12 text-center text-slate-400'},h('p',{className:'font-bold'},'Servicio no encontrado'));
-
-  const history = useMemo(()=>[...(service.paymentHistory||[])].map(p=>({...p,amountARS:p.amountARS??p.amount??0})).sort((a,b)=>new Date(b.date)-new Date(a.date)),[service]);
-  const due = useMemo(()=>serviceNextDue(service),[service]);
-  const inactive = service.active===false;
+  const history = useMemo(()=>service?[...(service.paymentHistory||[])].map(p=>({...p,amountARS:p.amountARS??p.amount??0})).sort((a,b)=>new Date(b.date)-new Date(a.date)):[],[service]);
+  const due = useMemo(()=>service?serviceNextDue(service):null,[service]);
+  const inactive = service?.active===false;
 
   const withIncrease = useMemo(()=>{
     const chronological = [...history].sort((a,b)=>new Date(a.date)-new Date(b.date));
@@ -1179,6 +1177,8 @@ function ServiceDetailView({ service, wallets, setServices, setExpenses, dolarBl
   },[history]);
 
   const totalPaid = useMemo(()=>history.reduce((s,p)=>s+p.amountARS,0),[history]);
+
+  if (!service) return h('div',{className:'card p-12 text-center text-slate-400'},h('p',{className:'font-bold'},'Servicio no encontrado'));
 
   // Sugiere automáticamente el período (ej. "Mayo 2026") según la fecha elegida, en formato editable
   const suggestPeriod = (dateStr) => {
@@ -1233,7 +1233,10 @@ function ServiceDetailView({ service, wallets, setServices, setExpenses, dolarBl
     if (service.payWithWallet!==false && payForm.walletId) {
       expenseId = uid();
       setExpenses(prev=>[{
-        id: expenseId, type:'expense', amount: amountARS, description: `Pago servicio: ${service.name}`,
+        id: expenseId, type:'expense',
+        amount: payForm.currency==='USD' ? amountUSD : amountARS,
+        currency: payForm.currency,
+        description: `Pago servicio: ${service.name}`,
         categoryId: 'cat-4', walletId: payForm.walletId, date: payForm.date, isSaving:false,
         linkedServiceId: service.id, linkedServiceName: service.name
       }, ...prev]);
@@ -1665,13 +1668,22 @@ function App() {
   const [month,         setMonth]         = useState(currentM);
   const [year,          setYear]          = useState(currentY);
   const [categoriesRaw, setCategoriesRaw] = useState(DEFAULT_CATS);
+  const [syncState, setSyncState] = useState('idle'); // 'idle' | 'saving' | 'saved' | 'error'
+  const syncTimer = useRef(null);
 
   // Save wrapper — auto-saves to Firestore on every change
   const makeSet = (key, setter) => (valOrFn) => {
     setter(prev => {
       const next = typeof valOrFn === 'function' ? valOrFn(prev) : valOrFn;
       if (user) {
-        saveData(user.uid, { [key]: next });
+        setSyncState('saving');
+        saveData(user.uid, { [key]: next })
+          .then(() => {
+            setSyncState('saved');
+            if (syncTimer.current) clearTimeout(syncTimer.current);
+            syncTimer.current = setTimeout(() => setSyncState('idle'), 2500);
+          })
+          .catch(() => setSyncState('error'));
       }
       return next;
     });
@@ -1721,7 +1733,12 @@ function App() {
   }, []);
 
   // Dolar Blue
-  useEffect(()=>{ fetch('https://dolarapi.com/v1/dolares/blue').then(r=>r.json()).then(d=>{if(d.venta)setDolarBlue(d.venta);}).catch(()=>{}); },[]);
+  useEffect(()=>{
+    const fetchDolar=()=>fetch('https://dolarapi.com/v1/dolares/blue').then(r=>r.json()).then(d=>{if(d.venta)setDolarBlue(d.venta);}).catch(()=>{});
+    fetchDolar();
+    const iv=setInterval(fetchDolar,30*60*1000);
+    return()=>clearInterval(iv);
+  },[]);
 
   const handleLogin = async () => {
     setAuthError('');
@@ -1737,7 +1754,8 @@ function App() {
   };
 
   const handleExport = () => {
-    const data=JSON.stringify({expenses,wallets,services,lenses,purchases,haircuts,lensStock},null,2);
+    const customCategories=categories.filter(c=>!DEFAULT_CATS.some(dc=>dc.id===c.id));
+    const data=JSON.stringify({expenses,wallets,services,lenses,purchases,haircuts,lensStock,categories:customCategories},null,2);
     const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type:'application/json'}));
     a.download=`miapp-backup-${todayStr()}.json`;a.click();
   };
@@ -1763,6 +1781,7 @@ function App() {
           if(d.purchases) setPurchases(prev=>mergeArr(prev, d.purchases));
           if(d.haircuts) setHaircuts(prev=>mergeArr(prev, d.haircuts));
           if(d.lensStock!=null) setLensStock(d.lensStock);
+          if(d.categories) setCategories(prev=>mergeArr(prev, d.categories));
         } else {
           if(d.expenses) setExpenses(d.expenses);
           if(d.wallets)  setWallets(d.wallets);
@@ -1771,6 +1790,7 @@ function App() {
           if(d.purchases) setPurchases(d.purchases);
           if(d.haircuts) setHaircuts(d.haircuts);
           if(d.lensStock!=null) setLensStock(d.lensStock);
+          if(d.categories) setCategories(prev=>[...DEFAULT_CATS,...d.categories.filter(c=>!DEFAULT_CATS.some(dc=>dc.id===c.id))]);
         }
         alert('✅ Datos importados');
       } catch { alert('❌ Archivo inválido'); }
@@ -1794,13 +1814,24 @@ function App() {
       ),
       h('nav',{className:'flex-1 space-y-1'},TABS.map(t=>h('button',{key:t.id,onClick:()=>setTab(t.id),className:`w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all ${tab===t.id?'bg-gradient-to-r from-indigo-50 to-violet-50 text-indigo-700 border border-indigo-100':'text-slate-500 hover:bg-slate-50'}`},t.icon,' ',t.label))),
       h('div',{className:'mt-4 space-y-2'},
-        h('div',{className:'p-3 rounded-2xl bg-emerald-50 flex items-center gap-2'},h('div',{className:'w-2 h-2 rounded-full bg-emerald-500'}),h('p',{className:'text-[9px] font-black text-emerald-600 uppercase tracking-widest'},'Sincronizado')),
+        syncState==='saving'&&h('div',{className:'p-3 rounded-2xl bg-amber-50 flex items-center gap-2'},h('div',{className:'w-2 h-2 rounded-full bg-amber-400 spin'}),h('p',{className:'text-[9px] font-black text-amber-600 uppercase tracking-widest'},'Guardando...')),
+        syncState==='saved'&&h('div',{className:'p-3 rounded-2xl bg-emerald-50 flex items-center gap-2'},h('div',{className:'w-2 h-2 rounded-full bg-emerald-500'}),h('p',{className:'text-[9px] font-black text-emerald-600 uppercase tracking-widest'},'Guardado ✓')),
+        syncState==='error'&&h('div',{className:'p-3 rounded-2xl bg-rose-50 flex items-center gap-2'},h('div',{className:'w-2 h-2 rounded-full bg-rose-500'}),h('p',{className:'text-[9px] font-black text-rose-600 uppercase tracking-widest'},'Error al guardar')),
+        syncState==='idle'&&h('div',{className:'p-3 rounded-2xl bg-emerald-50 flex items-center gap-2'},h('div',{className:'w-2 h-2 rounded-full bg-emerald-500'}),h('p',{className:'text-[9px] font-black text-emerald-600 uppercase tracking-widest'},'Sincronizado')),
         h('p',{className:'text-[9px] font-black text-slate-400 text-center truncate'},user?.email)
       )
     ),
     // Header
     h('header',{className:'sticky top-0 bg-white/80 backdrop-blur-md border-b border-slate-100 px-5 py-3 flex justify-between items-center z-30'},
-      h('div',null,h('h2',{className:'text-base font-black text-slate-800 leading-none'},TABS.find(t=>t.id===tab)?.label??tab),showDatePicker&&h('p',{className:'text-[10px] text-slate-400 font-black uppercase tracking-widest mt-0.5'},new Date(year,month,1).toLocaleDateString('es-AR',{month:'long',year:'numeric'}))),
+      h('div',null,
+        h('h2',{className:'text-base font-black text-slate-800 leading-none'},TABS.find(t=>t.id===tab)?.label??tab),
+        showDatePicker&&h('p',{className:'text-[10px] text-slate-400 font-black uppercase tracking-widest mt-0.5'},new Date(year,month,1).toLocaleDateString('es-AR',{month:'long',year:'numeric'})),
+        h('div',{className:'md:hidden flex items-center gap-1.5 mt-0.5'},
+          syncState==='saving'&&h(Fragment,null,h('div',{className:'w-1.5 h-1.5 rounded-full bg-amber-400 spin'}),h('span',{className:'text-[9px] font-black text-amber-500 uppercase tracking-widest'},'Guardando...')),
+          syncState==='saved'&&h(Fragment,null,h('div',{className:'w-1.5 h-1.5 rounded-full bg-emerald-500'}),h('span',{className:'text-[9px] font-black text-emerald-600 uppercase tracking-widest'},'Guardado ✓')),
+          syncState==='error'&&h(Fragment,null,h('div',{className:'w-1.5 h-1.5 rounded-full bg-rose-500'}),h('span',{className:'text-[9px] font-black text-rose-600 uppercase tracking-widest'},'Error al guardar'))
+        )
+      ),
       showDatePicker&&h('div',{className:'flex gap-2'},
         h('select',{value:month,onChange:e=>setMonth(parseInt(e.target.value)),className:'text-xs bg-slate-100 rounded-xl px-3 py-2 outline-none font-black text-slate-700'},MONTHS.map((m,i)=>h('option',{key:i,value:i},m.slice(0,3).toUpperCase()))),
         h('select',{value:year,onChange:e=>setYear(parseInt(e.target.value)),className:'text-xs bg-slate-100 rounded-xl px-3 py-2 outline-none font-black text-slate-700'},[2024,2025,2026,2027,2028,2029,2030].map(y=>h('option',{key:y,value:y},y)))
