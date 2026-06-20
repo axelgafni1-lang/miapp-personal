@@ -1113,21 +1113,16 @@ function ServiceDetailView({ service, wallets, setServices, setExpenses, dolarBl
 
   const openPay = () => { const today=todayStr(); setPayForm({date:today,amount:'',currency:'ARS',period:suggestPeriod(today),walletId:service.walletId||wallets[0]?.id||''}); setShowPayForm(true); };
 
+  const newBulkRow = () => ({ id:uid(), date:todayStr(), amount:'', currency:'ARS', walletId:service.walletId||wallets[0]?.id||'' });
+
   const openBulkMonths = () => {
-    const freqMonths = FREQUENCY_MONTHS[service.frequency]||1;
-    const defaultWallet = service.walletId||wallets[0]?.id||'';
-    const rows = [];
-    const now = new Date();
-    for (let i=5; i>=0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth()-i*freqMonths, service.dueDay||1);
-      const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-      rows.push({id:String(i),date:dateStr,amount:'',currency:'ARS',walletId:defaultWallet,period:suggestPeriod(dateStr)});
-    }
-    setBulkMonths(rows);
+    setBulkMonths([newBulkRow(), newBulkRow(), newBulkRow()]);
     setShowBulkMonths(true);
   };
 
   const updateBulkMonth = (id,k,v) => setBulkMonths(prev=>prev.map(r=>r.id===id?{...r,[k]:v}:r));
+  const addBulkRow = () => setBulkMonths(prev=>[...prev, newBulkRow()]);
+  const removeBulkRow = (id) => setBulkMonths(prev=>prev.filter(r=>r.id!==id));
 
   const confirmBulkMonths = () => {
     const newExpenses = [];
@@ -1143,7 +1138,7 @@ function ServiceDetailView({ service, wallets, setServices, setExpenses, dolarBl
         expenseId=uid();
         newExpenses.push({id:expenseId,type:'expense',amount:amountARS,description:`Pago servicio: ${service.name}`,categoryId:'cat-4',walletId:row.walletId,date:row.date,isSaving:false,linkedServiceId:service.id,linkedServiceName:service.name});
       }
-      newPayments.push({id:uid(),date:row.date,amountARS,amountUSD,currency:row.currency,period:row.period,dolarBlueAtPayment:dolarBlue,walletId:row.walletId,expenseId});
+      newPayments.push({id:uid(),date:row.date,amountARS,amountUSD,currency:row.currency,period:suggestPeriod(row.date),dolarBlueAtPayment:dolarBlue,walletId:row.walletId,expenseId});
     });
     if (newExpenses.length) setExpenses(prev=>[...newExpenses,...prev]);
     setServices(prev=>prev.map(s=>s.id===service.id?{...s,paymentHistory:[...(s.paymentHistory||[]),...newPayments]}:s));
@@ -1300,13 +1295,23 @@ function ServiceDetailView({ service, wallets, setServices, setExpenses, dolarBl
           ),
           h('button',{type:'button',onClick:()=>setShowBulkMonths(false),className:'text-slate-400 text-2xl'},'×')
         ),
-        h('div',{className:'space-y-2 max-h-[60vh] overflow-y-auto pr-1'},
+        h('div',{className:'space-y-2 max-h-[55vh] overflow-y-auto pr-1'},
           bulkMonths.map(row=>{
             const filled = !!parseAmountInput(row.amount);
             return h('div',{key:row.id,className:`rounded-2xl border-2 p-3 space-y-2 transition-all ${filled?'border-indigo-300 bg-indigo-50':'border-slate-100 bg-slate-50'}`},
-              h('div',{className:'flex items-center justify-between'},
-                h('p',{className:'text-xs font-black text-slate-700'},row.period),
-                filled&&h('span',{className:'text-[9px] font-black text-indigo-600 bg-indigo-100 px-2 py-0.5 rounded-full'},'✓ listo')
+              h('div',{className:'flex items-center gap-2'},
+                h('div',{className:'flex-1 space-y-0.5'},
+                  h('label',{className:'text-[9px] font-black text-slate-400 uppercase tracking-widest'},'Mes / Año'),
+                  h('input',{type:'month',value:row.date.slice(0,7),
+                    onChange:e=>{
+                      const [y,m]=e.target.value.split('-');
+                      const day = service.dueDay||1;
+                      const dateStr=`${y}-${m}-${String(day).padStart(2,'0')}`;
+                      updateBulkMonth(row.id,'date',dateStr);
+                    },
+                    className:'w-full px-3 py-2 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm focus:border-indigo-400 transition-all'})
+                ),
+                bulkMonths.length>1&&h('button',{type:'button',onClick:()=>removeBulkRow(row.id),className:'mt-4 text-slate-300 hover:text-rose-500 text-lg transition-colors'},'×')
               ),
               h('div',{className:'flex gap-2'},
                 h('input',{type:'text',inputMode:'decimal',placeholder:'Monto',value:row.amount,
@@ -1321,9 +1326,11 @@ function ServiceDetailView({ service, wallets, setServices, setExpenses, dolarBl
               service.payWithWallet!==false&&wallets.length>0&&h('select',{value:row.walletId,onChange:e=>updateBulkMonth(row.id,'walletId',e.target.value),
                 className:'w-full px-3 py-2 bg-white border border-slate-200 rounded-xl outline-none font-bold text-xs focus:border-indigo-400 transition-all'},
                 wallets.map(w=>h('option',{key:w.id,value:w.id},w.name))
-              )
+              ),
+              filled&&h('p',{className:'text-[9px] font-black text-indigo-500'},`📅 ${suggestPeriod(row.date)}`)
             );
-          })
+          }),
+          h('button',{type:'button',onClick:addBulkRow,className:'w-full py-2.5 rounded-2xl border-2 border-dashed border-slate-200 text-slate-400 font-black text-xs hover:border-indigo-300 hover:text-indigo-500 transition-all'},'+ Agregar mes')
         ),
         h('div',{className:'flex gap-3 pt-2'},
           h('button',{type:'button',onClick:()=>setShowBulkMonths(false),className:'flex-1 py-3 rounded-2xl font-black text-xs bg-slate-100 text-slate-600'},'Cancelar'),
