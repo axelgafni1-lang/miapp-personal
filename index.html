@@ -767,8 +767,8 @@ function WalletsView({ wallets, expenses, categories, dolarBlue, onAddWallet, on
         h('p',{className:'text-xs font-black text-slate-700 truncate mb-0.5'},w.name),
         w.lastFour&&h('p',{className:'text-[10px] text-slate-400 font-bold mono mb-1'},`•••• ${w.lastFour}`),
         h('span',{className:'text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full mb-1 inline-block bg-indigo-50 text-indigo-500'},w.currencies==='USD'?'US$ Dólares':w.currencies==='both'?'$ + US$':'$ Pesos'),
-        h('p',{className:`text-base font-black ${w.balanceARS>=0?'text-emerald-600':'text-rose-500'}`},fmt(w.balanceARS)),
-        (w.currencies==='USD'||w.currencies==='both'||w.balanceUSD!==0)&&h('p',{className:`text-xs font-black ${w.balanceUSD>=0?'text-emerald-500':'text-rose-400'}`},fmtUSD(w.balanceUSD)),
+        w.currencies!=='USD'&&h('p',{className:`text-base font-black ${w.balanceARS>=0?'text-emerald-600':'text-rose-500'}`},fmt(w.balanceARS)),
+        (w.currencies==='USD'||w.currencies==='both'||w.balanceUSD!==0)&&h('p',{className:`${w.currencies==='both'?'text-xs':'text-base'} font-black ${w.balanceUSD>=0?'text-emerald-500':'text-rose-400'}`},fmtUSD(w.balanceUSD)),
         h('button',{onClick:e=>{e.stopPropagation();if(confirm('¿Eliminar billetera?'))onDeleteWallet(w.id);},className:'text-[10px] text-slate-300 hover:text-rose-500 mt-2 transition-colors'},'eliminar')
       )
     )),
