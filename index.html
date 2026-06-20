@@ -459,15 +459,19 @@ function SaludView({ lenses, setLenses, lensStock, setLensStock, purchases, setP
 }
 
 // ── EXPENSE MODAL ─────────────────────────────────────────────────────────────
-function ExpenseModal({ categories, wallets, onSubmit, onCancel, onAddCategory, initialData, isSavingContext }) {
+function ExpenseModal({ categories, wallets, onSubmit, onCancel, onAddCategory, initialData, isSavingContext, savingTypeContext }) {
   const savingCat = categories.find(c=>c.isSavingCategory);
   const [isSaving] = useState(isSavingContext||(initialData?.isSaving??false));
   const isServiceLinked = !!initialData?.linkedServiceId;
+  const defaultWalletId = isSavingContext
+    ? (initialData?.walletId ?? wallets.find(w=>(w.name||'').toLowerCase().includes('efectivo'))?.id ?? wallets[0]?.id ?? '')
+    : (initialData?.walletId ?? wallets[0]?.id ?? '');
   const [form, setForm] = useState({
-    type:initialData?.type??'expense', amount:initialData?.amount?fmtAmountInput(initialData.amount):'',
+    type:initialData?.type??(isSavingContext?(savingTypeContext||'income'):'expense'),
+    amount:initialData?.amount?fmtAmountInput(initialData.amount):'',
     description:initialData?.description??'',
     categoryId:initialData?.categoryId??(isSavingContext?savingCat?.id:categories.find(c=>!c.isSavingCategory&&c.id!=='cat-income')?.id??''),
-    walletId:initialData?.walletId??wallets[0]?.id??'', date:initialData?.date??todayStr(),
+    walletId:defaultWalletId, date:initialData?.date??todayStr(),
     currency: isSaving ? 'USD' : (initialData?.currency??'ARS'),
   });
   const [newCatName, setNewCatName] = useState('');
@@ -487,9 +491,12 @@ function ExpenseModal({ categories, wallets, onSubmit, onCancel, onAddCategory, 
   };
   return h(Modal,{onClose:onCancel},
     h('form',{onSubmit:handleSubmit,className:'bg-white rounded-t-3xl md:rounded-3xl p-6 space-y-4'},
-      h('div',{className:'flex justify-between items-center'},h('h3',{className:'text-lg font-black'},initialData?'Editar Movimiento':(isSaving?'🐷 Ahorro USD':'+ Nuevo Movimiento')),h('button',{type:'button',onClick:onCancel,className:'text-slate-400 text-2xl'},'×')),
+      h('div',{className:'flex justify-between items-center'},
+        h('h3',{className:'text-lg font-black'},initialData?'Editar Movimiento':isSaving?(form.type==='income'?'🐷 Depositar USD':'🐷 Retirar USD'):'+ Nuevo Movimiento'),
+        h('button',{type:'button',onClick:onCancel,className:'text-slate-400 text-2xl'},'×')
+      ),
       isServiceLinked&&h('p',{className:'text-xs text-amber-700 font-bold bg-amber-50 p-3 rounded-xl'},`🔌 Este movimiento viene del pago del servicio "${initialData.linkedServiceName}". Si editás el monto aquí, el historial del servicio no se actualiza automáticamente.`),
-      !isSaving&&h('div',{className:'flex gap-2'},['expense','income'].map(t=>h('button',{key:t,type:'button',onClick:()=>set('type',t),className:`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${form.type===t?(t==='income'?'bg-emerald-500 text-white':'bg-rose-500 text-white'):'bg-slate-100 text-slate-500'}`},t==='income'?'⬆ Ingreso':'⬇ Gasto'))),
+      h('div',{className:'flex gap-2'},(isSaving?[['income','⬆ Depositar'],['expense','⬇ Retirar']]:[['expense','⬇ Gasto'],['income','⬆ Ingreso']]).map(([t,label])=>h('button',{key:t,type:'button',onClick:()=>set('type',t),className:`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${form.type===t?(t==='income'?'bg-emerald-500 text-white':'bg-rose-500 text-white'):'bg-slate-100 text-slate-500'}`},label))),
       !isSaving&&h('div',{className:'flex gap-2'},['ARS','USD'].map(c=>h('button',{key:c,type:'button',onClick:()=>set('currency',c),className:`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${form.currency===c?'bg-indigo-600 text-white':'bg-slate-100 text-slate-500'}`},c==='ARS'?'$ Pesos':'US$ Dólares'))),
       h('div',{className:'space-y-1'},h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Monto '+(isSaving?'(USD)':`(${form.currency})`)),h('input',{type:'text',inputMode:'decimal',required:true,value:form.amount,onChange:e=>set('amount',fmtWhileTyping(e.target.value)),onBlur:()=>{const n=parseAmountInput(form.amount);if(n)set('amount',fmtAmountInput(n));},className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-lg focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 transition-all',placeholder:'0'})),
       h('div',{className:'space-y-1'},h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Descripción (opcional)'),h('input',{type:'text',value:form.description,onChange:e=>set('description',e.target.value),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-indigo-400 transition-all',placeholder:'Ej: Supermercado'})),
@@ -1443,11 +1450,17 @@ function ServiceDetailView({ service, wallets, setServices, setExpenses, dolarBl
   );
 }
 
-function SavingsView({ expenses, dolarBlue, onAddClick, onEdit, onDelete }) {
+function SavingsView({ expenses, dolarBlue, onAddIncome, onAddExpense, onEdit, onDelete }) {
   const savings=useMemo(()=>[...expenses.filter(x=>x.isSaving)].sort((a,b)=>new Date(b.date)-new Date(a.date)),[expenses]);
   const totalUSD=useMemo(()=>savings.reduce((s,x)=>x.type==='income'?s+x.amount:s-x.amount,0),[savings]);
   return h('div',{className:'space-y-4'},
-    h('div',{className:'flex justify-between items-center'},h('h3',{className:'text-lg font-black'},'🐷 Ahorros USD'),h('button',{onClick:onAddClick,className:'bg-emerald-600 text-white px-5 py-2 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg'},'+ Agregar')),
+    h('div',{className:'flex justify-between items-center'},
+      h('h3',{className:'text-lg font-black'},'🐷 Ahorros USD'),
+      h('div',{className:'flex gap-2'},
+        h('button',{onClick:onAddExpense,className:'bg-rose-500 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg'},'− Retirar'),
+        h('button',{onClick:onAddIncome,className:'bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg'},'+ Depositar')
+      )
+    ),
     h('div',{className:'grid grid-cols-3 gap-3'},h('div',{className:'rounded-3xl p-4 text-white',style:{background:'#059669'}},h('p',{className:'text-[9px] font-black text-emerald-200 uppercase mb-1'},'Total USD'),h('h2',{className:'text-xl font-black'},fmtUSD(totalUSD))),h('div',{className:'rounded-3xl p-4 text-white',style:{background:'#0f172a'}},h('p',{className:'text-[9px] font-black text-slate-400 uppercase mb-1'},'Dólar Blue'),h('h2',{className:'text-xl font-black'},fmt(dolarBlue))),h('div',{className:'card p-4'},h('p',{className:'text-[9px] font-black text-slate-400 uppercase mb-1'},'En Pesos'),h('h2',{className:'text-xl font-black text-indigo-600'},fmt(totalUSD*dolarBlue)))),
     savings.length===0?h('div',{className:'card p-12 text-center text-slate-400'},h('p',{className:'text-4xl mb-2'},'🐷'),h('p',{className:'font-bold'},'Sin ahorros')):
     h('div',{className:'space-y-3'},savings.map(x=>h('div',{key:x.id,className:'card p-4 flex items-center justify-between'},h('div',{className:'flex items-center gap-3'},h('div',{className:'w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-xl'},'🐷'),h('div',null,h('p',{className:'font-bold text-slate-800 text-sm'},x.description),h('p',{className:'text-[9px] text-slate-400 font-bold uppercase'},fmtDate(x.date)))),h('div',{className:'flex items-center gap-3'},h('span',{className:`font-black ${x.type==='income'?'text-emerald-600':'text-rose-500'}`},(x.type==='income'?'+':'-')+fmtUSD(x.amount)),h('div',{className:'flex gap-1'},h('button',{onClick:()=>onEdit(x),className:'p-1.5 text-slate-400 hover:text-indigo-600 rounded-lg'},'✏️'),h('button',{onClick:()=>onDelete(x.id),className:'p-1.5 text-slate-400 hover:text-rose-600 rounded-lg'},'🗑️'))))))
@@ -1526,8 +1539,9 @@ function FinanzasView({ expenses, setExpenses, wallets, setWallets, services, se
   const [showModal,setShowModal]=useState(false);
   const [editingExp,setEditingExp]=useState(null);
   const [isSavingCtx,setIsSavingCtx]=useState(false);
+  const [savingTypeCtx,setSavingTypeCtx]=useState('income');
   const [detailServiceId,setDetailServiceId]=useState(null);
-  const openAdd=(isSaving=false)=>{setIsSavingCtx(isSaving);setEditingExp(null);setShowModal(true);};
+  const openAdd=(isSaving=false,savingType='income')=>{setIsSavingCtx(isSaving);setSavingTypeCtx(savingType);setEditingExp(null);setShowModal(true);};
   const openEdit=exp=>{setEditingExp(exp);setIsSavingCtx(exp.isSaving??false);setShowModal(true);};
   const handleSubmit=data=>{if(editingExp){setExpenses(p=>p.map(x=>x.id===editingExp.id?data:x));}else{setExpenses(p=>[data,...p]);}setShowModal(false);setEditingExp(null);};
   const handleDelete=exp=>{
@@ -1553,10 +1567,10 @@ function FinanzasView({ expenses, setExpenses, wallets, setWallets, services, se
           sub==='expenses'&&h(ExpensesView,{expenses,categories,wallets,services,currentMonth,currentYear,onAddClick:()=>openAdd(false),onEdit:openEdit,onDelete:handleDelete,onOpenService:setDetailServiceId}),
           sub==='wallets'&&h(WalletsView,{wallets,expenses,categories,dolarBlue,onAddWallet:w=>setWallets(p=>[...p,w]),onUpdateWallet:(id,data)=>setWallets(p=>p.map(w=>w.id===id?{...w,...data,id}:w)),onDeleteWallet:id=>setWallets(p=>p.filter(x=>x.id!==id))}),
           sub==='services'&&h(ServicesView,{services,setServices,wallets,setExpenses,dolarBlue,currentMonth,currentYear,onOpenDetail:setDetailServiceId}),
-          sub==='savings'&&h(SavingsView,{expenses,dolarBlue,onAddClick:()=>openAdd(true),onEdit:openEdit,onDelete:handleDelete}),
+          sub==='savings'&&h(SavingsView,{expenses,dolarBlue,onAddIncome:()=>openAdd(true,'income'),onAddExpense:()=>openAdd(true,'expense'),onEdit:openEdit,onDelete:handleDelete}),
           sub==='reports'&&h(ReportsView,{expenses,categories,wallets,dolarBlue,currentYear})
         ),
-    showModal&&h(ExpenseModal,{categories,wallets,onSubmit:handleSubmit,onCancel:()=>{setShowModal(false);setEditingExp(null);},onAddCategory:cat=>{setCategories(prev=>[...prev,cat]);},initialData:editingExp,isSavingContext:isSavingCtx})
+    showModal&&h(ExpenseModal,{categories,wallets,onSubmit:handleSubmit,onCancel:()=>{setShowModal(false);setEditingExp(null);},onAddCategory:cat=>{setCategories(prev=>[...prev,cat]);},initialData:editingExp,isSavingContext:isSavingCtx,savingTypeContext:savingTypeCtx})
   );
 }
 
