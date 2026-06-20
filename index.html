@@ -918,12 +918,13 @@ function ServicesView({ services, setServices, wallets, setExpenses, dolarBlue, 
     return { sv, raw: found?.amount||0, monthlyEquivalent, isExact: found?.isExact??false, hasHistory: !!found };
   }),[activeServices, currentMonth, currentYear, dolarBlue]);
 
-  const monthlyTotal = monthlyBreakdown.filter(b=>b.sv.payWithWallet!==false).reduce((s,b)=>s+b.monthlyEquivalent,0);
+  const myBreakdown = monthlyBreakdown.filter(b=>b.sv.payWithWallet!==false);
+  const thirdBreakdown = monthlyBreakdown.filter(b=>b.sv.payWithWallet===false);
+  const myMonthlyTotal = myBreakdown.reduce((s,b)=>s+b.monthlyEquivalent,0);
+  const thirdMonthlyTotal = thirdBreakdown.reduce((s,b)=>s+b.monthlyEquivalent,0);
 
   return h('div',{className:'space-y-4'},
     h('div',{className:'flex justify-between items-center'},h('h3',{className:'text-lg font-black'},'Servicios'),h('button',{onClick:openAdd,className:'bg-indigo-600 text-white px-5 py-2 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg'},'+ Nuevo')),
-    h('div',{className:'rounded-3xl p-5 text-white',style:{background:'#4f46e5'}},h('p',{className:'text-[10px] font-black text-indigo-200 uppercase mb-1'},'Total Mensual (según último monto cargado)'),h('h2',{className:'text-2xl font-black'},fmt(totalMensual))),
-
     services.length===0?h('div',{className:'card p-12 text-center text-slate-400'},h('p',{className:'text-4xl mb-2'},'🔌'),h('p',{className:'font-bold'},'Sin servicios')):
     h('div',{className:'grid grid-cols-3 sm:grid-cols-4 gap-3'},sortedServices.map(sv=>{
       const due = dueInfo(sv);
@@ -941,29 +942,76 @@ function ServicesView({ services, setServices, wallets, setExpenses, dolarBlue, 
       );
     })),
 
-    activeServices.length>0&&h('div',{className:'space-y-3'},
-      h('div',{className:'flex justify-between items-center'},
-        h('p',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},`Costo Mensual por Servicio · ${MONTHS[currentMonth]} ${currentYear}`),
-        h('p',{className:'text-sm font-black text-indigo-600'},fmt(monthlyTotal))
-      ),
-      h('div',{className:'card divide-y divide-slate-50'},
-        monthlyBreakdown.map(({sv,monthlyEquivalent,isExact,hasHistory})=>
-          h('div',{key:sv.id,className:'flex items-center justify-between py-3 px-1 first:pt-1 last:pb-1'},
-            h('div',{className:'flex items-center gap-3 min-w-0'},
-              h(ServiceLogo,{name:sv.name,size:'w-8 h-8',customLogo:sv.customLogo}),
-              h('div',{className:'min-w-0'},
-                h('p',{className:'text-sm font-bold text-slate-700 truncate'},sv.name),
-                h('p',{className:'text-[9px] text-slate-400 font-bold uppercase'},
-                  sv.frequency!=='Mensual' ? `${sv.frequency} ÷ ${FREQUENCY_DIVISOR[sv.frequency]||1}` : 'Mensual',
-                  !hasHistory ? ' · sin historial' : (!isExact ? ' · estimado (último cargado)' : ' · este período'),
-                  (()=>{const d=dueInfo(sv);return d?` · vence ${d.dateStr}`:''})()
+    activeServices.length>0&&h('div',{className:'space-y-4'},
+      h('p',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},`Costo Mensual · ${MONTHS[currentMonth]} ${currentYear}`),
+
+      // Lo pago yo
+      h('div',{className:'space-y-1'},
+        h('p',{className:'text-[10px] font-black text-indigo-500 uppercase tracking-widest'},'Lo pago yo'),
+        h('div',{className:'card divide-y divide-slate-50'},
+          myBreakdown.length===0
+            ? h('p',{className:'text-xs text-slate-400 italic p-4'},'Sin servicios propios')
+            : myBreakdown.map(({sv,monthlyEquivalent,isExact,hasHistory})=>
+                h('div',{key:sv.id,className:'flex items-center justify-between py-3 px-3 first:pt-3 last:pb-3'},
+                  h('div',{className:'flex items-center gap-3 min-w-0'},
+                    h(ServiceLogo,{name:sv.name,size:'w-8 h-8',customLogo:sv.customLogo}),
+                    h('div',{className:'min-w-0'},
+                      h('p',{className:'text-sm font-bold text-slate-700 truncate'},sv.name),
+                      h('p',{className:'text-[9px] text-slate-400 font-bold uppercase'},
+                        sv.frequency!=='Mensual'?`${sv.frequency} ÷ ${FREQUENCY_DIVISOR[sv.frequency]||1}`:'Mensual',
+                        !hasHistory?' · sin historial':(!isExact?' · estimado':' · este período'),
+                        (()=>{const d=dueInfo(sv);return d?` · vence ${d.dateStr}`:''})()
+                      )
+                    )
+                  ),
+                  h('p',{className:'text-sm font-black flex-shrink-0 text-slate-800'},fmt(monthlyEquivalent))
                 )
-              )
-            ),
-            h('p',{className:`text-sm font-black flex-shrink-0 ${sv.payWithWallet===false?'text-slate-400':'text-slate-800'}`},
-              sv.payWithWallet===false ? `(${fmt(monthlyEquivalent)})` : fmt(monthlyEquivalent)
-            )
+              ),
+          h('div',{className:'flex justify-between items-center py-3 px-3 bg-indigo-50 rounded-b-2xl'},
+            h('p',{className:'text-[10px] font-black text-indigo-600 uppercase tracking-widest'},'Subtotal'),
+            h('p',{className:'text-sm font-black text-indigo-600'},fmt(myMonthlyTotal))
           )
+        )
+      ),
+
+      // Lo paga un tercero
+      h('div',{className:'space-y-1'},
+        h('p',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Lo paga un tercero'),
+        h('div',{className:'card divide-y divide-slate-50'},
+          thirdBreakdown.length===0
+            ? h('p',{className:'text-xs text-slate-400 italic p-4'},'Sin servicios de terceros')
+            : thirdBreakdown.map(({sv,monthlyEquivalent,isExact,hasHistory})=>
+                h('div',{key:sv.id,className:'flex items-center justify-between py-3 px-3 first:pt-3 last:pb-3'},
+                  h('div',{className:'flex items-center gap-3 min-w-0'},
+                    h(ServiceLogo,{name:sv.name,size:'w-8 h-8',customLogo:sv.customLogo}),
+                    h('div',{className:'min-w-0'},
+                      h('p',{className:'text-sm font-bold text-slate-700 truncate'},sv.name),
+                      h('p',{className:'text-[9px] text-slate-400 font-bold uppercase'},
+                        sv.frequency!=='Mensual'?`${sv.frequency} ÷ ${FREQUENCY_DIVISOR[sv.frequency]||1}`:'Mensual',
+                        !hasHistory?' · sin historial':(!isExact?' · estimado':' · este período'),
+                        (()=>{const d=dueInfo(sv);return d?` · vence ${d.dateStr}`:''})()
+                      )
+                    )
+                  ),
+                  h('p',{className:'text-sm font-black flex-shrink-0 text-slate-400'},fmt(monthlyEquivalent))
+                )
+              ),
+          h('div',{className:'flex justify-between items-center py-3 px-3 bg-slate-50 rounded-b-2xl'},
+            h('p',{className:'text-[10px] font-black text-slate-500 uppercase tracking-widest'},'Subtotal'),
+            h('p',{className:'text-sm font-black text-slate-500'},fmt(thirdMonthlyTotal))
+          )
+        )
+      ),
+
+      // Total combinado
+      h('div',{className:'rounded-3xl p-5 text-white',style:{background:'linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%)'}},
+        h('div',{className:'flex justify-between items-center'},
+          h('p',{className:'text-[10px] font-black text-indigo-200 uppercase tracking-widest'},'Total combinado'),
+          h('p',{className:'text-2xl font-black'},fmt(myMonthlyTotal+thirdMonthlyTotal))
+        ),
+        h('div',{className:'flex gap-4 mt-2'},
+          h('p',{className:'text-[10px] text-indigo-300 font-bold'},`Yo: ${fmt(myMonthlyTotal)}`),
+          h('p',{className:'text-[10px] text-indigo-300 font-bold'},`Terceros: ${fmt(thirdMonthlyTotal)}`)
         )
       )
     ),
@@ -1147,7 +1195,7 @@ function ServiceDetailView({ service, wallets, setServices, setExpenses, dolarBl
       ),
       h('div',{className:'flex gap-3 flex-wrap'},
         service.payer&&h('div',{className:'bg-white/15 rounded-xl px-3 py-2'},h('p',{className:'text-[9px] font-black text-indigo-200 uppercase'},'Paga'),h('p',{className:'text-sm font-bold'},service.payer)),
-        h('div',{className:'bg-white/15 rounded-xl px-3 py-2'},h('p',{className:'text-[9px] font-black text-indigo-200 uppercase'},'Billetera'),h('p',{className:'text-sm font-bold'},service.payWithWallet!==false?(wallets.find(w=>w.id===service.walletId)?.name??'—'):'No afecta billetera')),
+        h('div',{className:'bg-white/15 rounded-xl px-3 py-2'},h('p',{className:'text-[9px] font-black text-indigo-200 uppercase'},service.payWithWallet!==false?'Billetera':'Paga'),h('p',{className:'text-sm font-bold'},service.payWithWallet!==false?(wallets.find(w=>w.id===service.walletId)?.name??'—'):'Tercero')),
         due!=null&&h('div',{className:'bg-white/15 rounded-xl px-3 py-2'},h('p',{className:'text-[9px] font-black text-indigo-200 uppercase'},'Vencimiento'),h('p',{className:'text-sm font-bold'},due.days===0?'Hoy':due.days<0?`Venció hace ${Math.abs(due.days)}d`:`${due.dateStr}`),due.days>0&&h('p',{className:'text-[9px] text-indigo-300 font-bold'},`en ${due.days} días`))
       ),
       service.description&&h('p',{className:'text-indigo-200 text-xs font-bold mt-3'},service.description)
