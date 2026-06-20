@@ -804,6 +804,35 @@ function WalletsView({ wallets, expenses, categories, dolarBlue, onAddWallet, on
 
 // Cuántas veces al año se paga cada frecuencia, para mensualizar el costo
 const FREQUENCY_DIVISOR = { 'Mensual':1, 'Bimestral':2, 'Trimestral':3, 'Semestral':6, 'Anual':12 };
+// Meses entre cada pago según frecuencia
+const FREQUENCY_MONTHS = { 'Mensual':1, 'Bimestral':2, 'Trimestral':3, 'Semestral':6, 'Anual':12 };
+
+// Calcula el próximo vencimiento de un servicio a partir del último pago registrado.
+// Si no hay historial, cae al dueDay como fallback.
+const serviceNextDue = (sv) => {
+  if (sv.active===false) return null;
+  const months = FREQUENCY_MONTHS[sv.frequency] || 1;
+  const hist = sv.paymentHistory || [];
+  let target;
+  if (hist.length) {
+    const sorted = [...hist].sort((a,b)=>new Date(b.date)-new Date(a.date));
+    const last = parseLocalDate(sorted[0].date);
+    target = new Date(last.getFullYear(), last.getMonth()+months, last.getDate());
+  } else if (sv.dueDay) {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    target = new Date(now.getFullYear(), now.getMonth(), sv.dueDay);
+    if (target < today) target = new Date(now.getFullYear(), now.getMonth()+1, sv.dueDay);
+  } else {
+    return null;
+  }
+  const todayMs = new Date(); todayMs.setHours(0,0,0,0);
+  const days = Math.round((target - todayMs) / 86400000);
+  let color = 'text-slate-400';
+  if (days<=3) color='text-rose-500'; else if (days<=7) color='text-amber-500';
+  const dateStr = target.toLocaleDateString('es-AR',{day:'numeric',month:'short',year:'numeric'});
+  return { days, color, dateStr };
+};
 
 function ServicesView({ services, setServices, wallets, setExpenses, dolarBlue, currentMonth, currentYear, onOpenDetail }) {
   const [showForm,setShowForm]=useState(false);
@@ -851,18 +880,7 @@ function ServicesView({ services, setServices, wallets, setExpenses, dolarBlue, 
   };
   const reactivate = sv => setServices(p=>p.map(s=>s.id===sv.id?{...s,active:true}:s));
 
-  const dueInfo = (sv) => {
-    if (!sv.dueDay || sv.active===false) return null;
-    const days = daysUntilDue(sv.dueDay);
-    let color = 'text-slate-400';
-    if (days<=3) color='text-rose-500'; else if (days<=7) color='text-amber-500';
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    let target = new Date(now.getFullYear(), now.getMonth(), sv.dueDay);
-    if (target < today) target = new Date(now.getFullYear(), now.getMonth()+1, sv.dueDay);
-    const dateStr = target.toLocaleDateString('es-AR',{day:'numeric',month:'short'});
-    return { days, color, dateStr };
-  };
+  const dueInfo = (sv) => serviceNextDue(sv);
 
   const activeServices = services.filter(s=>s.active!==false);
   const lastAmountInARS = sv => {
@@ -1018,16 +1036,7 @@ function ServiceDetailView({ service, wallets, setServices, setExpenses, dolarBl
   if (!service) return h('div',{className:'card p-12 text-center text-slate-400'},h('p',{className:'font-bold'},'Servicio no encontrado'));
 
   const history = useMemo(()=>[...(service.paymentHistory||[])].map(p=>({...p,amountARS:p.amountARS??p.amount??0})).sort((a,b)=>new Date(b.date)-new Date(a.date)),[service]);
-  const due = useMemo(()=>{
-    if (!service.dueDay || service.active===false) return null;
-    const days = daysUntilDue(service.dueDay);
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    let target = new Date(now.getFullYear(), now.getMonth(), service.dueDay);
-    if (target < today) target = new Date(now.getFullYear(), now.getMonth()+1, service.dueDay);
-    const dateStr = target.toLocaleDateString('es-AR',{day:'numeric',month:'short'});
-    return { days, dateStr };
-  },[service.dueDay, service.active]);
+  const due = useMemo(()=>serviceNextDue(service),[service]);
   const inactive = service.active===false;
 
   const withIncrease = useMemo(()=>{
@@ -1049,7 +1058,7 @@ function ServiceDetailView({ service, wallets, setServices, setExpenses, dolarBl
     return `${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
   };
 
-  const openPay = () => { const today=todayStr(); setPayForm({date:today,amount:'',currency:'ARS',period:suggestPeriod(today)}); setShowPayForm(true); };
+  const openPay = () => { const today=todayStr(); setPayForm({date:today,amount:'',currency:'ARS',period:suggestPeriod(today),walletId:service.walletId||wallets[0]?.id||''}); setShowPayForm(true); };
 
   const confirmPay = (e) => {
     e.preventDefault();
@@ -1066,18 +1075,18 @@ function ServiceDetailView({ service, wallets, setServices, setExpenses, dolarBl
     let expenseId = null;
     const period = payForm.period.trim() || suggestPeriod(payForm.date);
 
-    if (service.payWithWallet!==false && service.walletId) {
+    if (service.payWithWallet!==false && payForm.walletId) {
       expenseId = uid();
       setExpenses(prev=>[{
         id: expenseId, type:'expense', amount: amountARS, description: `Pago servicio: ${service.name}`,
-        categoryId: 'cat-4', walletId: service.walletId, date: payForm.date, isSaving:false,
+        categoryId: 'cat-4', walletId: payForm.walletId, date: payForm.date, isSaving:false,
         linkedServiceId: service.id, linkedServiceName: service.name
       }, ...prev]);
     }
 
     setServices(prev=>prev.map(s=>s.id===service.id?{
       ...s,
-      paymentHistory:[...(s.paymentHistory||[]), {id:paymentId, date:payForm.date, amountARS, amountUSD, currency:payForm.currency, period, dolarBlueAtPayment:dolarBlue, walletId:s.walletId, expenseId}]
+      paymentHistory:[...(s.paymentHistory||[]), {id:paymentId, date:payForm.date, amountARS, amountUSD, currency:payForm.currency, period, dolarBlueAtPayment:dolarBlue, walletId:payForm.walletId, expenseId}]
     }:s));
 
     setShowPayForm(false);
@@ -1206,9 +1215,14 @@ function ServiceDetailView({ service, wallets, setServices, setExpenses, dolarBl
             ? `Equivale a ${fmtUSD(parseAmountInput(payForm.amount)/dolarBlue)} al dólar blue de hoy`
             : `Equivale a ${fmt(parseAmountInput(payForm.amount)*dolarBlue)} al dólar blue de hoy`
         ),
-        service.payWithWallet!==false
-          ? h('p',{className:'text-xs text-indigo-600 font-bold bg-indigo-50 p-3 rounded-xl'},`📊 Esto va a crear un movimiento en Finanzas con la billetera "${wallets.find(w=>w.id===service.walletId)?.name??'—'}"`)
-          : h('p',{className:'text-xs text-slate-500 font-bold bg-slate-50 p-3 rounded-xl'},'Este servicio no afecta tus billeteras (lo paga otra persona); solo se guarda el registro.'),
+        service.payWithWallet!==false && wallets.length>0
+          ? h('div',{className:'space-y-1'},
+              h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Medio de pago'),
+              h('select',{value:payForm.walletId,onChange:e=>setPayForm(f=>({...f,walletId:e.target.value})),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-indigo-400 transition-all'},
+                wallets.map(w=>h('option',{key:w.id,value:w.id},w.name))
+              )
+            )
+          : h('p',{className:'text-xs text-slate-500 font-bold bg-slate-50 p-3 rounded-xl'},'Este servicio no afecta tus billeteras; solo se guarda el registro.'),
         h('button',{type:'submit',className:'w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all'},'Guardar')
       )
     ),
