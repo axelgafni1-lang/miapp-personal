@@ -649,7 +649,8 @@ function ExpenseModal({ categories, wallets, onSubmit, onCancel, onAddCategory, 
 function Dashboard({ expenses, categories, wallets, services, currentMonth, currentYear, onAddClick, dolarBlue }) {
   const monthExp=useMemo(()=>expenses.filter(x=>{const d=new Date(x.date);return d.getUTCMonth()===currentMonth&&d.getUTCFullYear()===currentYear;}),[expenses,currentMonth,currentYear]);
   const totals=useMemo(()=>{const income=monthExp.filter(x=>!x.isSaving&&x.type==='income').reduce((s,x)=>s+x.amount,0);const expense=monthExp.filter(x=>!x.isSaving&&x.type==='expense').reduce((s,x)=>s+x.amount,0);return{income,expense,balance:income-expense};},[monthExp]);
-  const totalSavingsUSD=useMemo(()=>expenses.filter(x=>x.isSaving).reduce((s,x)=>x.type==='income'?s+x.amount:s-x.amount,0),[expenses]);
+  const efectivoId=wallets.find(w=>(w.name||'').toLowerCase().includes('efectivo'))?.id??'w-1';
+  const usdEfectivo=useMemo(()=>expenses.filter(x=>x.walletId===efectivoId&&x.currency==='USD').reduce((s,x)=>x.type==='income'?s+x.amount:s-x.amount,0),[expenses,efectivoId]);
   const catSpend=useMemo(()=>{const map={};monthExp.filter(x=>x.type==='expense'&&!x.isSaving).forEach(x=>{const cat=categories.find(c=>c.id===x.categoryId);if(!cat)return;map[cat.id]=map[cat.id]||{amount:0,...cat};map[cat.id].amount+=x.amount;});return Object.values(map).sort((a,b)=>b.amount-a.amount);},[monthExp,categories]);
   const recent=[...monthExp].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,5);
   const upcomingDue = useMemo(()=>services.filter(sv=>sv.dueDay&&sv.active!==false).map(sv=>({...sv,days:daysUntilDue(sv.dueDay)})).sort((a,b)=>a.days-b.days).slice(0,4),[services]);
@@ -658,7 +659,7 @@ function Dashboard({ expenses, categories, wallets, services, currentMonth, curr
       h('div',{className:'card p-5'},h('p',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1'},'Ingresos'),h('h2',{className:'text-xl font-black text-emerald-600'},fmt(totals.income))),
       h('div',{className:'card p-5'},h('p',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1'},'Gastos'),h('h2',{className:'text-xl font-black text-rose-500'},fmt(totals.expense))),
       h('div',{className:'rounded-3xl p-5 text-white',style:{background:'#4f46e5'}},h('p',{className:'text-[10px] font-black text-indigo-200 uppercase tracking-widest mb-1'},'Balance'),h('h2',{className:'text-xl font-black'},fmt(totals.balance))),
-      h('div',{className:'rounded-3xl p-5 text-white',style:{background:'#059669'}},h('p',{className:'text-[10px] font-black text-emerald-200 uppercase tracking-widest mb-1'},'Ahorros USD'),h('h2',{className:'text-xl font-black'},fmtUSD(totalSavingsUSD)))
+      h('div',{className:'rounded-3xl p-5 text-white',style:{background:'#059669'}},h('p',{className:'text-[10px] font-black text-emerald-200 uppercase tracking-widest mb-1'},'USD Efectivo'),h('h2',{className:'text-xl font-black'},fmtUSD(usdEfectivo)))
     ),
     h('div',{className:'grid lg:grid-cols-3 gap-5'},
       h('div',{className:'lg:col-span-2 space-y-5'},
@@ -1718,7 +1719,8 @@ function HomeView({ expenses, wallets, services, lenses, haircuts, lensStock, do
   const lastHair=useMemo(()=>[...haircuts].sort((a,b)=>new Date(b.date)-new Date(a.date))[0],[haircuts]);
   const monthExp=useMemo(()=>expenses.filter(x=>{const d=new Date(x.date);return d.getUTCMonth()===currentMonth&&d.getUTCFullYear()===currentYear;}),[expenses,currentMonth,currentYear]);
   const balance=useMemo(()=>{const income=monthExp.filter(x=>!x.isSaving&&x.type==='income').reduce((s,x)=>s+x.amount,0);const expense=monthExp.filter(x=>!x.isSaving&&x.type==='expense').reduce((s,x)=>s+x.amount,0);return income-expense;},[monthExp]);
-  const totalSavingsUSD=useMemo(()=>expenses.filter(x=>x.isSaving).reduce((s,x)=>x.type==='income'?s+x.amount:s-x.amount,0),[expenses]);
+  const efectivoId=wallets.find(w=>(w.name||'').toLowerCase().includes('efectivo'))?.id??'w-1';
+  const usdEfectivo=useMemo(()=>expenses.filter(x=>x.walletId===efectivoId&&x.currency==='USD').reduce((s,x)=>x.type==='income'?s+x.amount:s-x.amount,0),[expenses,efectivoId]);
   const upcomingDue = useMemo(()=>services.filter(sv=>sv.dueDay&&sv.active!==false).map(sv=>({...sv,days:daysUntilDue(sv.dueDay)})).sort((a,b)=>a.days-b.days).slice(0,3),[services]);
   return h('div',{className:'space-y-6 fade-up'},
     h('div',null,h('p',{className:'text-slate-400 font-bold text-sm'},now.toLocaleDateString('es-AR',{weekday:'long',day:'numeric',month:'long'})),h('h1',{className:'text-3xl font-black text-slate-900 mt-1'},'Hola, Axel 👋')),
@@ -1726,7 +1728,7 @@ function HomeView({ expenses, wallets, services, lenses, haircuts, lensStock, do
       h('div',{className:'absolute right-4 top-4 text-6xl opacity-20'},'💎'),
       h('p',{className:'text-[10px] font-black text-indigo-200 uppercase tracking-widest mb-1'},'Balance este mes'),
       h('h2',{className:'text-4xl font-black mb-3'},fmt(balance)),
-      h('div',{className:'flex gap-4'},h('div',null,h('p',{className:'text-[10px] text-indigo-300 font-black uppercase'},'Ahorros USD'),h('p',{className:'text-lg font-black'},fmtUSD(totalSavingsUSD))),h('div',null,h('p',{className:'text-[10px] text-indigo-300 font-black uppercase'},'Dólar Blue'),h('p',{className:'text-lg font-black'},fmt(dolarBlue)))),
+      h('div',{className:'flex gap-4'},h('div',null,h('p',{className:'text-[10px] text-indigo-300 font-black uppercase'},'USD Efectivo'),h('p',{className:'text-lg font-black'},fmtUSD(usdEfectivo))),h('div',null,h('p',{className:'text-[10px] text-indigo-300 font-black uppercase'},'Dólar Blue'),h('p',{className:'text-lg font-black'},fmt(dolarBlue)))),
       h('p',{className:'text-[10px] text-indigo-300 font-black uppercase tracking-widest mt-3'},'Toca para ver Finanzas →')
     ),
     h('div',{className:'grid grid-cols-2 gap-4'},
