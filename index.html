@@ -445,16 +445,137 @@ function HaircutView({ haircuts, setHaircuts }) {
   );
 }
 
-function SaludView({ lenses, setLenses, lensStock, setLensStock, purchases, setPurchases, haircuts, setHaircuts }) {
+// ── WEIGHT VIEW ───────────────────────────────────────────────────────────────
+function WeightView({ weightLogs, setWeightLogs }) {
+  const today = new Date().toISOString().split('T')[0];
+  const [form, setForm] = useState({date:today, weight:''});
+  const [editingId, setEditingId] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+
+  const sorted = useMemo(()=>[...weightLogs].sort((a,b)=>new Date(a.date)-new Date(b.date)),[weightLogs]);
+
+  const chartData = useMemo(()=>sorted.slice(-20).map(x=>({
+    fecha: fmtDate(x.date,{day:'2-digit',month:'short'}),
+    peso: x.weight
+  })),[sorted]);
+
+  const latest = sorted.length>0 ? sorted[sorted.length-1] : null;
+  const prev   = sorted.length>1 ? sorted[sorted.length-2] : null;
+  const delta  = latest&&prev ? +(latest.weight-prev.weight).toFixed(1) : null;
+
+  const openAdd  = ()=>{ setEditingId(null); setForm({date:today,weight:''}); setShowForm(true); };
+  const openEdit = x=>{ setEditingId(x.id); setForm({date:x.date,weight:String(x.weight)}); setShowForm(true); };
+  const closeForm= ()=>{ setShowForm(false); setEditingId(null); };
+
+  const handleSave = ()=>{
+    const w = parseFloat(form.weight.replace(',','.'));
+    if(!form.date||isNaN(w)||w<=0||w>300) return;
+    if(editingId){
+      setWeightLogs(prev=>prev.map(x=>x.id===editingId?{...x,date:form.date,weight:w}:x));
+    } else {
+      setWeightLogs(prev=>[...prev,{id:uid(),date:form.date,weight:w}]);
+    }
+    closeForm();
+  };
+
+  const del = id=>{ if(confirm('¿Eliminar este registro?')) setWeightLogs(prev=>prev.filter(x=>x.id!==id)); };
+
+  const minW = chartData.length>0 ? Math.min(...chartData.map(x=>x.peso))-2 : 50;
+  const maxW = chartData.length>0 ? Math.max(...chartData.map(x=>x.peso))+2 : 100;
+
+  return h('div',{className:'space-y-5'},
+    // Stats
+    latest&&h('div',{className:'grid grid-cols-3 gap-3'},
+      h('div',{className:'card p-4 text-center'},
+        h('p',{className:'text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1'},'Peso actual'),
+        h('p',{className:'text-2xl font-black text-slate-800'},latest.weight),
+        h('p',{className:'text-[10px] text-slate-400 font-bold'},'kg')
+      ),
+      h('div',{className:'card p-4 text-center'},
+        h('p',{className:'text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1'},'Variación'),
+        delta!==null
+          ? h('p',{className:`text-2xl font-black ${delta<0?'text-emerald-600':delta>0?'text-rose-500':'text-slate-400'}`},delta>0?`+${delta}`:delta)
+          : h('p',{className:'text-2xl font-black text-slate-300'},'—'),
+        h('p',{className:'text-[10px] text-slate-400 font-bold'},'vs anterior')
+      ),
+      h('div',{className:'card p-4 text-center'},
+        h('p',{className:'text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1'},'Registros'),
+        h('p',{className:'text-2xl font-black text-slate-800'},weightLogs.length),
+        h('p',{className:'text-[10px] text-slate-400 font-bold'},'total')
+      )
+    ),
+    // Chart
+    chartData.length>=2&&h('div',{className:'card p-5'},
+      h('p',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4'},'Evolución de Peso'),
+      h(ResponsiveContainer,{width:'100%',height:160},
+        h(LineChart,{data:chartData,margin:{top:5,right:5,bottom:5,left:-20}},
+          h(XAxis,{dataKey:'fecha',tick:{fontSize:9,fill:'#94a3b8'},tickLine:false,axisLine:false}),
+          h(YAxis,{domain:[minW,maxW],tick:{fontSize:9,fill:'#94a3b8'},tickLine:false,axisLine:false,tickCount:4}),
+          h(Tooltip,{formatter:v=>[`${v} kg`,'Peso'],labelStyle:{fontSize:11,fontWeight:'bold'},contentStyle:{borderRadius:12,border:'none',boxShadow:'0 4px 12px rgba(0,0,0,0.1)',fontSize:11}}),
+          h(Line,{type:'monotone',dataKey:'peso',stroke:'#6366f1',strokeWidth:2.5,dot:{r:3,fill:'#6366f1',strokeWidth:0},activeDot:{r:5}})
+        )
+      )
+    ),
+    // Add button
+    !showForm&&h('button',{onClick:openAdd,className:'w-full py-4 rounded-2xl font-black text-sm uppercase tracking-widest bg-slate-900 text-white shadow-lg hover:bg-slate-800 transition-all'},'+ Registrar Peso'),
+    // Form
+    showForm&&h('div',{className:'card p-5 space-y-4'},
+      h('div',{className:'flex justify-between items-center'},
+        h('p',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},editingId?'Editar Registro':'Nuevo Registro'),
+        h('button',{onClick:closeForm,className:'text-slate-400 text-2xl'},'×')
+      ),
+      h('div',{className:'space-y-1'},
+        h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Fecha'),
+        h('input',{type:'date',value:form.date,onChange:e=>setForm(f=>({...f,date:e.target.value})),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-slate-400 transition-all'})
+      ),
+      h('div',{className:'space-y-1'},
+        h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Peso (kg)'),
+        h('input',{type:'text',inputMode:'decimal',placeholder:'Ej: 75.5',value:form.weight,onChange:e=>setForm(f=>({...f,weight:e.target.value})),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-slate-400 transition-all'})
+      ),
+      h('button',{onClick:handleSave,className:'w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg hover:bg-slate-800 transition-all'},editingId?'Guardar Cambios':'Guardar Registro')
+    ),
+    // History
+    h('div',{className:'space-y-3'},
+      h('p',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Historial'),
+      sorted.length===0
+        ?h('div',{className:'card p-8 text-center text-slate-400'},h('p',{className:'text-4xl mb-2'},'⚖️'),h('p',{className:'font-bold text-sm'},'Empezá a registrar tu peso'))
+        :[...sorted].reverse().map((x,i,arr)=>{
+            const prevE = arr[i+1];
+            const d = prevE!=null ? +(x.weight-prevE.weight).toFixed(1) : null;
+            return h('div',{key:x.id,className:'card p-4 flex items-center justify-between'},
+              h('div',{className:'flex items-center gap-3'},
+                h('div',{className:`w-10 h-10 rounded-2xl flex items-center justify-center text-xl ${d===null?'bg-slate-50':d<0?'bg-emerald-50':d>0?'bg-rose-50':'bg-slate-50'}`},
+                  d===null?'⚖️':d<0?'↘️':d>0?'↗️':'➡️'
+                ),
+                h('div',null,
+                  h('p',{className:'font-black text-slate-800 text-sm'},`${x.weight} kg`),
+                  h('p',{className:'text-[11px] text-slate-500 font-bold'},fmtDate(x.date,{day:'2-digit',month:'short',year:'numeric'}))
+                )
+              ),
+              h('div',{className:'flex items-center gap-2'},
+                d!==null&&h('span',{className:`text-xs font-black px-2 py-0.5 rounded-lg ${d<0?'bg-emerald-50 text-emerald-600':d>0?'bg-rose-50 text-rose-500':'bg-slate-100 text-slate-400'}`},
+                  d>0?`+${d}`:String(d)
+                ),
+                h('button',{onClick:()=>openEdit(x),className:'p-2 text-slate-300 hover:text-slate-700 hover:bg-slate-50 rounded-xl transition-colors'},'✏️'),
+                h('button',{onClick:()=>del(x.id),className:'p-2 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-colors'},'🗑️')
+              )
+            );
+          })
+    )
+  );
+}
+
+function SaludView({ lenses, setLenses, lensStock, setLensStock, purchases, setPurchases, haircuts, setHaircuts, weightLogs, setWeightLogs }) {
   const [sub, setSub] = useState('lenses');
   return h('div',{className:'space-y-5'},
-    h('div',{className:'flex gap-2 p-1 bg-white rounded-2xl border border-slate-100'},
-      [{id:'lenses',icon:'👁️',label:'Lentes'},{id:'hair',icon:'✂️',label:'Pelo'}].map(t=>
+    h('div',{className:'flex gap-2 p-1 bg-white rounded-2xl border border-slate-100 flex-wrap'},
+      [{id:'lenses',icon:'👁️',label:'Lentes'},{id:'hair',icon:'✂️',label:'Pelo'},{id:'health',icon:'❤️',label:'Salud'}].map(t=>
         h('button',{key:t.id,onClick:()=>setSub(t.id),className:`flex-1 py-3 rounded-xl font-black text-sm transition-all flex items-center justify-center gap-2 ${sub===t.id?'bg-slate-900 text-white shadow':'text-slate-500 hover:bg-slate-50'}`},t.icon,' ',t.label)
       )
     ),
     sub==='lenses'&&h(LensesView,{lenses,setLenses,lensStock,setLensStock,purchases,setPurchases}),
-    sub==='hair'&&h(HaircutView,{haircuts,setHaircuts})
+    sub==='hair'&&h(HaircutView,{haircuts,setHaircuts}),
+    sub==='health'&&h(WeightView,{weightLogs,setWeightLogs})
   );
 }
 
@@ -1668,10 +1789,11 @@ function App() {
   const [expenses,  setExpensesRaw]  = useState([]);
   const [wallets,   setWalletsRaw]   = useState(DEFAULT_WALLETS);
   const [services,  setServicesRaw]  = useState([]);
-  const [lenses,    setLensesRaw]    = useState([]);
-  const [purchases, setPurchasesRaw] = useState([]);
-  const [haircuts,  setHaircutsRaw]  = useState([]);
-  const [lensStock, setLensStockRaw] = useState(0);
+  const [lenses,     setLensesRaw]     = useState([]);
+  const [purchases,  setPurchasesRaw]  = useState([]);
+  const [haircuts,   setHaircutsRaw]   = useState([]);
+  const [lensStock,  setLensStockRaw]  = useState(0);
+  const [weightLogs, setWeightLogsRaw] = useState([]);
   const [dolarBlue,     setDolarBlue]     = useState(1000);
   const [tab,           setTab]           = useState('home');
   const [month,         setMonth]         = useState(currentM);
@@ -1703,10 +1825,11 @@ function App() {
   const setServices    = makeSet('services',    setServicesRaw);
   const setCategories  = makeSet('categories',  setCategoriesRaw);
   const categories     = categoriesRaw;
-  const setLenses    = makeSet('lenses',    setLensesRaw);
-  const setPurchases = makeSet('purchases', setPurchasesRaw);
-  const setHaircuts  = makeSet('haircuts',  setHaircutsRaw);
-  const setLensStock = makeSet('lensStock', setLensStockRaw);
+  const setLenses     = makeSet('lenses',     setLensesRaw);
+  const setPurchases  = makeSet('purchases',  setPurchasesRaw);
+  const setHaircuts   = makeSet('haircuts',   setHaircutsRaw);
+  const setLensStock  = makeSet('lensStock',  setLensStockRaw);
+  const setWeightLogs = makeSet('weightLogs', setWeightLogsRaw);
 
   // Auth listener
   useEffect(() => {
@@ -1733,6 +1856,7 @@ function App() {
           if (d.purchases)   setPurchasesRaw(d.purchases);
           if (d.haircuts)    setHaircutsRaw(d.haircuts);
           if (d.lensStock != null) setLensStockRaw(d.lensStock);
+          if (d.weightLogs)  setWeightLogsRaw(d.weightLogs);
           if (d.categories)  setCategoriesRaw([...DEFAULT_CATS, ...d.categories.filter(c=>!DEFAULT_CATS.some(dc=>dc.id===c.id))]);
         }
       } catch(e) { console.error('Load error:', e); }
@@ -1764,7 +1888,7 @@ function App() {
 
   const handleExport = () => {
     const customCategories=categories.filter(c=>!DEFAULT_CATS.some(dc=>dc.id===c.id));
-    const data=JSON.stringify({expenses,wallets,services,lenses,purchases,haircuts,lensStock,categories:customCategories},null,2);
+    const data=JSON.stringify({expenses,wallets,services,lenses,purchases,haircuts,lensStock,weightLogs,categories:customCategories},null,2);
     const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type:'application/json'}));
     a.download=`miapp-backup-${todayStr()}.json`;a.click();
   };
@@ -1790,6 +1914,7 @@ function App() {
           if(d.purchases) setPurchases(prev=>mergeArr(prev, d.purchases));
           if(d.haircuts) setHaircuts(prev=>mergeArr(prev, d.haircuts));
           if(d.lensStock!=null) setLensStock(d.lensStock);
+          if(d.weightLogs) setWeightLogs(prev=>mergeArr(prev, d.weightLogs));
           if(d.categories) setCategories(prev=>mergeArr(prev, d.categories));
         } else {
           if(d.expenses) setExpenses(d.expenses);
@@ -1799,6 +1924,7 @@ function App() {
           if(d.purchases) setPurchases(d.purchases);
           if(d.haircuts) setHaircuts(d.haircuts);
           if(d.lensStock!=null) setLensStock(d.lensStock);
+          if(d.weightLogs) setWeightLogs(d.weightLogs);
           if(d.categories) setCategories(prev=>[...DEFAULT_CATS,...d.categories.filter(c=>!DEFAULT_CATS.some(dc=>dc.id===c.id))]);
         }
         alert('✅ Datos importados');
@@ -1850,7 +1976,7 @@ function App() {
     h('main',{className:'p-5 max-w-5xl mx-auto'},
       tab==='home'     && h(HomeView,{expenses,wallets,services,lenses,haircuts,lensStock,dolarBlue,currentMonth:month,currentYear:year,setTab}),
       tab==='finanzas' && h(FinanzasView,{expenses,setExpenses,wallets,setWallets,services,setServices,categories,setCategories,dolarBlue,currentMonth:month,currentYear:year}),
-      tab==='salud'    && h(SaludView,{lenses,setLenses,lensStock,setLensStock,purchases,setPurchases,haircuts,setHaircuts}),
+      tab==='salud'    && h(SaludView,{lenses,setLenses,lensStock,setLensStock,purchases,setPurchases,haircuts,setHaircuts,weightLogs,setWeightLogs}),
       tab==='ajustes'  && h(AjustesView,{onExport:handleExport,onImport:handleImport,onSignOut:handleSignOut,userEmail:user?.email})
     ),
     // Bottom nav
