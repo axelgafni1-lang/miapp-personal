@@ -726,6 +726,13 @@ function WalletDetailView({ wallet, expenses, categories, dolarBlue, onBack, onE
     const out = wxp.filter(x=>x.type==='expense').reduce((s,x)=>s+x.amount,0);
     return inc-out;
   },[walletExpenses]);
+  const hasMixedCurrencies = useMemo(()=>walletExpenses.some(x=>!x.currency||x.currency==='ARS')&&walletExpenses.some(x=>x.currency==='USD'),[walletExpenses]);
+  const [currencyFilter,setCurrencyFilter] = useState('all');
+  const filteredExpenses = useMemo(()=>{
+    if(currencyFilter==='ARS') return walletExpenses.filter(x=>!x.currency||x.currency==='ARS');
+    if(currencyFilter==='USD') return walletExpenses.filter(x=>x.currency==='USD');
+    return walletExpenses;
+  },[walletExpenses,currencyFilter]);
 
   return h('div',{className:'space-y-5 fade-up'},
     h('button',{onClick:onBack,className:'text-xs font-black text-slate-500 hover:text-slate-800 flex items-center gap-1.5 transition-colors'},'← Volver a Billeteras'),
@@ -743,10 +750,13 @@ function WalletDetailView({ wallet, expenses, categories, dolarBlue, onBack, onE
         (wallet.currencies==='USD'||wallet.currencies==='both'||balanceUSD!==0)&&h('div',{className:'bg-white/15 rounded-xl px-3 py-2'},h('p',{className:'text-[9px] font-black text-white/70 uppercase'},'Saldo USD'),h('p',{className:'text-sm font-bold'},fmtUSD(balanceUSD)))
       )
     ),
+    hasMixedCurrencies&&h('div',{className:'flex gap-2'},
+      ['all','ARS','USD'].map(f=>h('button',{key:f,onClick:()=>setCurrencyFilter(f),className:`flex-1 py-2 rounded-xl text-xs font-black transition-all ${currencyFilter===f?'bg-indigo-600 text-white shadow-md':'bg-slate-100 text-slate-500 hover:bg-slate-200'}`},f==='all'?'Todos':f==='ARS'?'$ Pesos':'US$ Dólares'))
+    ),
     h('div',{className:'space-y-3'},
       h('p',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Historial de Movimientos'),
-      walletExpenses.length===0?h('div',{className:'card p-8 text-center text-slate-400'},h('p',{className:'text-3xl mb-2'},'💳'),h('p',{className:'font-bold text-sm'},'Sin movimientos en esta billetera')):
-      walletExpenses.map(x=>{
+      filteredExpenses.length===0?h('div',{className:'card p-8 text-center text-slate-400'},h('p',{className:'text-3xl mb-2'},'💳'),h('p',{className:'font-bold text-sm'},walletExpenses.length>0?'Sin movimientos en este filtro':'Sin movimientos en esta billetera')):
+      filteredExpenses.map(x=>{
         const cat = categories.find(c=>c.id===x.categoryId);
         const isUSD = x.currency==='USD';
         return h('div',{key:x.id,className:'card p-4 flex items-center justify-between'},
@@ -1563,7 +1573,7 @@ function FinanzasView({ expenses, setExpenses, wallets, setWallets, services, se
       setServices(prev=>prev.map(s=>s.id===target.linkedServiceId?{...s,paymentHistory:(s.paymentHistory||[]).filter(pmt=>pmt.expenseId!==id)}:s));
     }
   };
-  const SUBTABS=[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'expenses',icon:'💸',label:'Movimientos'},{id:'wallets',icon:'💳',label:'Billeteras'},{id:'services',icon:'🔌',label:'Servicios'},{id:'savings',icon:'🐷',label:'Ahorros'},{id:'reports',icon:'📈',label:'Reportes'}];
+  const SUBTABS=[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'expenses',icon:'💸',label:'Movimientos'},{id:'wallets',icon:'💳',label:'Billeteras'},{id:'services',icon:'🔌',label:'Servicios'},{id:'reports',icon:'📈',label:'Reportes'}];
   const detailService = detailServiceId ? services.find(s=>s.id===detailServiceId) : null;
   return h('div',{className:'space-y-4'},
     !detailService&&h('div',{className:'flex gap-1 overflow-x-auto scrollbar-hide pb-1'},SUBTABS.map(t=>h('button',{key:t.id,onClick:()=>setSub(t.id),className:`flex-shrink-0 px-3 py-2 rounded-xl font-black text-xs transition-all flex items-center gap-1.5 ${sub===t.id?'bg-indigo-600 text-white shadow':'bg-white text-slate-500 border border-slate-200 hover:bg-slate-50'}`},t.icon,' ',t.label))),
@@ -1574,7 +1584,6 @@ function FinanzasView({ expenses, setExpenses, wallets, setWallets, services, se
           sub==='expenses'&&h(ExpensesView,{expenses,categories,wallets,services,currentMonth,currentYear,onAddClick:()=>openAdd(false),onEdit:openEdit,onDelete:handleDelete,onOpenService:setDetailServiceId}),
           sub==='wallets'&&h(WalletsView,{wallets,expenses,categories,dolarBlue,onAddWallet:w=>setWallets(p=>[...p,w]),onUpdateWallet:(id,data)=>setWallets(p=>p.map(w=>w.id===id?{...w,...data,id}:w)),onDeleteWallet:id=>setWallets(p=>p.filter(x=>x.id!==id)),onEditExpense:openEdit,onDeleteExpense:handleDelete}),
           sub==='services'&&h(ServicesView,{services,setServices,wallets,setExpenses,dolarBlue,currentMonth,currentYear,onOpenDetail:setDetailServiceId}),
-          sub==='savings'&&h(SavingsView,{expenses,dolarBlue,onAddIncome:()=>openAdd(true,'income'),onAddExpense:()=>openAdd(true,'expense'),onEdit:openEdit,onDelete:handleDelete}),
           sub==='reports'&&h(ReportsView,{expenses,categories,wallets,dolarBlue,currentYear})
         ),
     showModal&&h(ExpenseModal,{categories,wallets,onSubmit:handleSubmit,onCancel:()=>{setShowModal(false);setEditingExp(null);},onAddCategory:cat=>{setCategories(prev=>[...prev,cat]);},initialData:editingExp,isSavingContext:isSavingCtx,savingTypeContext:savingTypeCtx})
