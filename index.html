@@ -648,18 +648,43 @@ function ExpenseModal({ categories, wallets, onSubmit, onCancel, onAddCategory, 
 // ── FINANCE COMPONENTS ────────────────────────────────────────────────────────
 function Dashboard({ expenses, categories, wallets, services, currentMonth, currentYear, onAddClick, dolarBlue }) {
   const monthExp=useMemo(()=>expenses.filter(x=>{const d=new Date(x.date);return d.getUTCMonth()===currentMonth&&d.getUTCFullYear()===currentYear;}),[expenses,currentMonth,currentYear]);
-  const totals=useMemo(()=>{const income=monthExp.filter(x=>!x.isSaving&&x.type==='income').reduce((s,x)=>s+x.amount,0);const expense=monthExp.filter(x=>!x.isSaving&&x.type==='expense').reduce((s,x)=>s+x.amount,0);return{income,expense,balance:income-expense};},[monthExp]);
-  const efectivoId=wallets.find(w=>(w.name||'').toLowerCase().includes('efectivo'))?.id??'w-1';
-  const usdEfectivo=useMemo(()=>expenses.filter(x=>x.walletId===efectivoId&&x.currency==='USD').reduce((s,x)=>x.type==='income'?s+x.amount:s-x.amount,0),[expenses,efectivoId]);
+
+  // Ingresos: solo cuando la categoría es específicamente 'Ingresos' (cat-income), no traspasos
+  const totals=useMemo(()=>{
+    const income=monthExp.filter(x=>!x.isSaving&&x.categoryId==='cat-income').reduce((s,x)=>s+x.amount,0);
+    const expense=monthExp.filter(x=>!x.isSaving&&x.type==='expense').reduce((s,x)=>s+x.amount,0);
+    return{income,expense,balance:income-expense};
+  },[monthExp]);
+
+  // USD: efectivo (billetera que se llama "efectivo"), resto de billeteras, y total
+  const usdEfectivo=useMemo(()=>{
+    const efectivoId=wallets.find(w=>(w.name||'').toLowerCase().includes('efectivo'))?.id;
+    if(!efectivoId) return 0;
+    return expenses.filter(x=>x.walletId===efectivoId&&x.currency==='USD').reduce((s,x)=>x.type==='income'?s+x.amount:s-x.amount,0);
+  },[expenses,wallets]);
+  const usdBilleteras=useMemo(()=>{
+    const efectivoId=wallets.find(w=>(w.name||'').toLowerCase().includes('efectivo'))?.id;
+    return expenses.filter(x=>x.currency==='USD'&&x.walletId!==efectivoId).reduce((s,x)=>x.type==='income'?s+x.amount:s-x.amount,0);
+  },[expenses,wallets]);
+  const usdTotal = usdEfectivo + usdBilleteras;
+
   const catSpend=useMemo(()=>{const map={};monthExp.filter(x=>x.type==='expense'&&!x.isSaving).forEach(x=>{const cat=categories.find(c=>c.id===x.categoryId);if(!cat)return;map[cat.id]=map[cat.id]||{amount:0,...cat};map[cat.id].amount+=x.amount;});return Object.values(map).sort((a,b)=>b.amount-a.amount);},[monthExp,categories]);
   const recent=[...monthExp].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,5);
   const upcomingDue = useMemo(()=>services.filter(sv=>sv.dueDay&&sv.active!==false).map(sv=>({...sv,days:daysUntilDue(sv.dueDay)})).sort((a,b)=>a.days-b.days).slice(0,4),[services]);
+
   return h('div',{className:'space-y-6'},
     h('div',{className:'grid grid-cols-2 lg:grid-cols-4 gap-3'},
       h('div',{className:'card p-5'},h('p',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1'},'Ingresos'),h('h2',{className:'text-xl font-black text-emerald-600'},fmt(totals.income))),
       h('div',{className:'card p-5'},h('p',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1'},'Gastos'),h('h2',{className:'text-xl font-black text-rose-500'},fmt(totals.expense))),
       h('div',{className:'rounded-3xl p-5 text-white',style:{background:'#4f46e5'}},h('p',{className:'text-[10px] font-black text-indigo-200 uppercase tracking-widest mb-1'},'Balance'),h('h2',{className:'text-xl font-black'},fmt(totals.balance))),
-      h('div',{className:'rounded-3xl p-5 text-white',style:{background:'#059669'}},h('p',{className:'text-[10px] font-black text-emerald-200 uppercase tracking-widest mb-1'},'USD Efectivo'),h('h2',{className:'text-xl font-black'},fmtUSD(usdEfectivo)))
+      h('div',{className:'rounded-3xl p-5 text-white',style:{background:'#059669'}},
+        h('p',{className:'text-[10px] font-black text-emerald-200 uppercase tracking-widest mb-1'},'Total USD'),
+        h('h2',{className:'text-xl font-black mb-2'},fmtUSD(usdTotal)),
+        h('div',{className:'flex gap-3 flex-wrap'},
+          h('div',null,h('p',{className:'text-[8px] font-black text-emerald-300 uppercase'},'Efectivo'),h('p',{className:'text-xs font-black'},fmtUSD(usdEfectivo))),
+          h('div',null,h('p',{className:'text-[8px] font-black text-emerald-300 uppercase'},'Billeteras'),h('p',{className:'text-xs font-black'},fmtUSD(usdBilleteras)))
+        )
+      )
     ),
     h('div',{className:'grid lg:grid-cols-3 gap-5'},
       h('div',{className:'lg:col-span-2 space-y-5'},
@@ -681,25 +706,37 @@ function Dashboard({ expenses, categories, wallets, services, currentMonth, curr
             );
           }))
         ),
-        h('div',{className:'rounded-3xl p-5 text-white relative overflow-hidden',style:{background:'#0f172a'}},h('div',{className:'absolute right-2 bottom-2 text-6xl opacity-10'},'💵'),h('p',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1'},'Dólar Blue'),h('h2',{className:'text-3xl font-black mb-3'},fmt(dolarBlue)),h('p',{className:'text-[9px] font-black text-slate-400 uppercase mb-1'},'USD Efectivo en pesos'),h('p',{className:'text-lg font-black'},fmt(usdEfectivo*dolarBlue)))
+        h('div',{className:'rounded-3xl p-5 text-white relative overflow-hidden',style:{background:'#0f172a'}},h('div',{className:'absolute right-2 bottom-2 text-6xl opacity-10'},'💵'),h('p',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1'},'Dólar Blue'),h('h2',{className:'text-3xl font-black mb-3'},fmt(dolarBlue)),h('p',{className:'text-[9px] font-black text-slate-400 uppercase mb-1'},'Total USD en pesos'),h('p',{className:'text-lg font-black'},fmt(usdTotal*dolarBlue)))
       )
     )
   );
 }
 
 function ExpensesView({ expenses, categories, wallets, services, currentMonth, currentYear, onAddClick, onEdit, onDelete, onOpenService }) {
-  const [filter,setFilter]=useState('all'); // all | service | saving | wallet:<id>
+  const [filter,setFilter]=useState('all');
+  const [search,setSearch]=useState('');
   const allMonth=useMemo(()=>expenses.filter(x=>{const d=new Date(x.date);return d.getUTCMonth()===currentMonth&&d.getUTCFullYear()===currentYear;}).sort((a,b)=>new Date(b.date)-new Date(a.date)),[expenses,currentMonth,currentYear]);
 
   const originOf = x => x.isSaving ? 'saving' : (x.linkedServiceId ? 'service' : 'regular');
 
   const filtered = useMemo(()=>{
-    if (filter==='all') return allMonth;
-    if (filter==='service') return allMonth.filter(x=>!!x.linkedServiceId);
-    if (filter==='saving') return allMonth.filter(x=>x.isSaving);
-    if (filter.startsWith('wallet:')) return allMonth.filter(x=>x.walletId===filter.slice(7));
-    return allMonth;
-  },[allMonth,filter]);
+    let base = allMonth;
+    if (filter==='service') base = base.filter(x=>!!x.linkedServiceId);
+    else if (filter==='saving') base = base.filter(x=>x.isSaving);
+    else if (filter.startsWith('wallet:')) base = base.filter(x=>x.walletId===filter.slice(7));
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      base = base.filter(x=>{
+        const cat = categories.find(c=>c.id===x.categoryId);
+        const wal = wallets.find(w=>w.id===x.walletId);
+        return (x.description||'').toLowerCase().includes(q)
+          || (cat?.name||'').toLowerCase().includes(q)
+          || (wal?.name||'').toLowerCase().includes(q)
+          || fmtDate(x.date).toLowerCase().includes(q);
+      });
+    }
+    return base;
+  },[allMonth,filter,search,categories,wallets]);
 
   const FILTERS=useMemo(()=>[
     {id:'all',label:'Todos'},
@@ -708,8 +745,12 @@ function ExpensesView({ expenses, categories, wallets, services, currentMonth, c
 
   return h('div',{className:'space-y-4'},
     h('div',{className:'flex justify-between items-center'},h('h3',{className:'text-lg font-black'},'Movimientos'),h('button',{onClick:onAddClick,className:'bg-indigo-600 text-white px-5 py-2 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg'},'+ Nuevo')),
+    h('div',{className:'relative'},
+      h('input',{type:'text',placeholder:'🔍 Buscar por descripción, categoría, billetera...',value:search,onChange:e=>setSearch(e.target.value),className:'w-full px-4 py-3 bg-white border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 transition-all'}),
+      search&&h('button',{onClick:()=>setSearch(''),className:'absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 font-black text-lg'},'×')
+    ),
     h('div',{className:'flex gap-1 overflow-x-auto scrollbar-hide pb-1'},FILTERS.map(f=>h('button',{key:f.id,onClick:()=>setFilter(f.id),className:`flex-shrink-0 px-3 py-1.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${filter===f.id?'bg-indigo-600 text-white':'bg-white text-slate-500 border border-slate-200 hover:bg-slate-50'}`},f.label))),
-    filtered.length===0?h('div',{className:'card p-12 text-center text-slate-400'},h('p',{className:'text-4xl mb-2'},'📭'),h('p',{className:'font-bold'},'Sin movimientos este mes')):
+    filtered.length===0?h('div',{className:'card p-12 text-center text-slate-400'},h('p',{className:'text-4xl mb-2'},search?'🔍':'📭'),h('p',{className:'font-bold'},search?`Sin resultados para "${search}"`:'Sin movimientos este mes')):
     h('div',{className:'space-y-3'},filtered.map(x=>{
       const cat=categories.find(c=>c.id===x.categoryId);
       const wal=wallets.find(w=>w.id===x.walletId);
