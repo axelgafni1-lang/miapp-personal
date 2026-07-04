@@ -132,7 +132,7 @@ const calcPreview = (val) => {
   const result = parseAmountInput(val);
   return result > 0 ? result : null;
 };
-const todayStr = () => new Date().toISOString().split('T')[0];
+const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 
 // Parsea un string "YYYY-MM-DD" como fecha LOCAL (evita el corrimiento de un día que pasa
 // cuando new Date("YYYY-MM-DD") lo interpreta como medianoche UTC y se convierte a horario local)
