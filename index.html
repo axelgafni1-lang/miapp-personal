@@ -101,14 +101,36 @@ const LENS_TYPES = ['Diaria','Mensual','Quincenal','Semanal','Semestral','Anual'
 const uid = () => Math.random().toString(36).substr(2,9);
 const fmt = n => `$${Number(n||0).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 const fmtUSD = n => `US$${Number(n||0).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
-const parseAmountInput = s => { const n = parseFloat(String(s||'').replace(/\./g,'').replace(',','.')); return isNaN(n)?0:n; };
+const parseAmountInput = s => {
+  if (!s) return 0;
+  // Soporta expresiones matemáticas: "15000+8500+3200", "50.000+12.500", etc.
+  // Normaliza separadores argentinos (. miles, , decimal) y evalúa la expresión
+  try {
+    const normalized = String(s)
+      .replace(/\./g,'')          // saca puntos de miles
+      .replace(/,/g,'.')          // convierte coma decimal a punto
+      .replace(/[^0-9+\-*/.]/g,''); // solo deja números y operadores
+    if (!normalized) return 0;
+    // eslint-disable-next-line no-new-func
+    const result = Function('"use strict"; return (' + normalized + ')')();
+    return isNaN(result) || !isFinite(result) ? 0 : Math.abs(result);
+  } catch { return 0; }
+};
 const fmtAmountInput = n => { const num = Number(n); return (!num||isNaN(num))?'':num.toLocaleString('es-AR',{minimumFractionDigits:0,maximumFractionDigits:2}); };
-// Formatea en tiempo real mientras el usuario tipea: "34727" → "34.727", "34727,5" → "34.727,5"
+// Permite tipear números con separadores argentinos Y operadores matemáticos
 const fmtWhileTyping = (val) => {
+  // Si contiene operadores, dejarlo pasar sin reformatear (el usuario está armando una suma)
+  if (/[+\-*]/.test(val)) return val;
   const clean = String(val||'').replace(/[^0-9,]/g,'');
   const parts = clean.split(',');
   const intPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g,'.');
   return parts.length>1 ? intPart+','+parts.slice(1).join('').replace(/,/g,'') : intPart;
+};
+// Calcula el resultado de una expresión para mostrar preview
+const calcPreview = (val) => {
+  if (!val || !/[+\-*]/.test(val)) return null;
+  const result = parseAmountInput(val);
+  return result > 0 ? result : null;
 };
 const todayStr = () => new Date().toISOString().split('T')[0];
 
@@ -619,7 +641,21 @@ function ExpenseModal({ categories, wallets, onSubmit, onCancel, onAddCategory, 
       isServiceLinked&&h('p',{className:'text-xs text-amber-700 font-bold bg-amber-50 p-3 rounded-xl'},`🔌 Este movimiento viene del pago del servicio "${initialData.linkedServiceName}". Si editás el monto aquí, el historial del servicio no se actualiza automáticamente.`),
       h('div',{className:'flex gap-2'},(isSaving?[['income','⬆ Depositar'],['expense','⬇ Retirar']]:[['expense','⬇ Gasto'],['income','⬆ Ingreso']]).map(([t,label])=>h('button',{key:t,type:'button',onClick:()=>set('type',t),className:`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${form.type===t?(t==='income'?'bg-emerald-500 text-white':'bg-rose-500 text-white'):'bg-slate-100 text-slate-500'}`},label))),
       !isSaving&&h('div',{className:'flex gap-2'},['ARS','USD'].map(c=>h('button',{key:c,type:'button',onClick:()=>set('currency',c),className:`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${form.currency===c?'bg-indigo-600 text-white':'bg-slate-100 text-slate-500'}`},c==='ARS'?'$ Pesos':'US$ Dólares'))),
-      h('div',{className:'space-y-1'},h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Monto '+(isSaving?'(USD)':`(${form.currency})`)),h('input',{type:'text',inputMode:'decimal',required:true,value:form.amount,onChange:e=>set('amount',fmtWhileTyping(e.target.value)),onBlur:()=>{const n=parseAmountInput(form.amount);if(n)set('amount',fmtAmountInput(n));},className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-lg focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 transition-all',placeholder:'0'})),
+      h('div',{className:'space-y-1'},
+        h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Monto '+(isSaving?'(USD)':`(${form.currency})`)),
+        h('input',{type:'text',inputMode:'decimal',required:true,value:form.amount,
+          onChange:e=>set('amount',fmtWhileTyping(e.target.value)),
+          onBlur:()=>{const n=parseAmountInput(form.amount);if(n)set('amount',fmtAmountInput(n));},
+          className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-lg focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 transition-all',
+          placeholder:'0  (podés sumar: 15000+8500+3200)'}),
+        calcPreview(form.amount)!==null&&h('div',{className:'flex items-center gap-2 px-1'},
+          h('span',{className:'text-[11px] text-slate-400 font-bold'},'='),
+          h('span',{className:'text-base font-black text-indigo-600'},
+            (isSaving||form.currency==='USD')?fmtUSD(calcPreview(form.amount)):fmt(calcPreview(form.amount))
+          ),
+          h('span',{className:'text-[10px] text-slate-400 font-bold'},'· tocá afuera para confirmar')
+        )
+      ),
       h('div',{className:'space-y-1'},h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Descripción (opcional)'),h('input',{type:'text',value:form.description,onChange:e=>set('description',e.target.value),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-indigo-400 transition-all',placeholder:'Ej: Supermercado'})),
       !isSaving&&h('div',{className:'space-y-2'},
         h('div',{className:'flex items-center justify-between'},
