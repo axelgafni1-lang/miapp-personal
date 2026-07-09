@@ -602,10 +602,14 @@ function SaludView({ lenses, setLenses, lensStock, setLensStock, purchases, setP
 }
 
 // ── EXPENSE MODAL ─────────────────────────────────────────────────────────────
-function ExpenseModal({ categories, wallets, onSubmit, onCancel, onAddCategory, initialData, isSavingContext, savingTypeContext }) {
+function ExpenseModal({ categories, wallets, expenses, onSubmit, onCancel, onAddCategory, initialData, isSavingContext, savingTypeContext }) {
   const savingCat = categories.find(c=>c.isSavingCategory);
   const [isSaving] = useState(isSavingContext||(initialData?.isSaving??false));
   const [isTransfer, setIsTransfer] = useState(initialData?.isTransfer??false);
+  // Para edición de traspaso: encontrar la billetera destino buscando el par
+  const transferPair = initialData?.isTransfer && initialData?.transferPairId
+    ? (expenses||[]).find(x=>x.transferPairId===initialData.transferPairId&&x.id!==initialData.id)
+    : null;
   const isServiceLinked = !!initialData?.linkedServiceId;
   const defaultWalletId = isSavingContext
     ? (initialData?.walletId ?? wallets.find(w=>(w.name||'').toLowerCase().includes('efectivo'))?.id ?? wallets[0]?.id ?? '')
@@ -617,7 +621,7 @@ function ExpenseModal({ categories, wallets, onSubmit, onCancel, onAddCategory, 
     categoryId:initialData?.categoryId??(isSavingContext?savingCat?.id:categories.find(c=>!c.isSavingCategory&&c.id!=='cat-income')?.id??''),
     walletId:defaultWalletId, date:initialData?.date??todayStr(),
     currency: isSaving ? 'USD' : (initialData?.currency??'ARS'),
-    toWalletId: wallets[1]?.id ?? wallets[0]?.id ?? '',
+    toWalletId: transferPair?.walletId ?? wallets[1]?.id ?? wallets[0]?.id ?? '',
   });
   const [newCatName, setNewCatName] = useState('');
   const [showNewCat, setShowNewCat] = useState(false);
@@ -631,10 +635,12 @@ function ExpenseModal({ categories, wallets, onSubmit, onCancel, onAddCategory, 
     const description = form.description.trim();
     const base = {date:form.date, currency:form.currency, isTransfer:true, description:description||'Transferencia entre billeteras'};
     if (isTransfer) {
-      // Crear dos registros: egreso en origen, ingreso en destino
+      // Crear dos registros vinculados por transferPairId
+      const pairId = uid();
+      const idOut = uid(), idIn = uid();
       onSubmit([
-        {...base, id:uid(), type:'expense', amount, walletId:form.walletId, categoryId:'cat-transfer', isSaving:false},
-        {...base, id:uid(), type:'income',  amount, walletId:form.toWalletId, categoryId:'cat-transfer', isSaving:false},
+        {...base, id:idOut, type:'expense', amount, walletId:form.walletId,   categoryId:'cat-transfer', isSaving:false, transferPairId:pairId, transferRole:'out'},
+        {...base, id:idIn,  type:'income',  amount, walletId:form.toWalletId, categoryId:'cat-transfer', isSaving:false, transferPairId:pairId, transferRole:'in'},
       ]);
     } else {
       onSubmit({...initialData,...form,amount,description,isSaving,categoryId:isSaving?savingCat?.id:form.categoryId,currency:isSaving?'USD':form.currency,id:initialData?.id??uid()});
@@ -661,13 +667,12 @@ function ExpenseModal({ categories, wallets, onSubmit, onCancel, onAddCategory, 
       isServiceLinked&&h('p',{className:'text-xs text-amber-700 font-bold bg-amber-50 p-3 rounded-xl'},`🔌 Este movimiento viene del pago del servicio "${initialData.linkedServiceName}". Si editás el monto aquí, el historial del servicio no se actualiza automáticamente.`),
 
       // Selector de modo: Gasto / Ingreso / Entre billeteras
-      !isSaving&&!initialData&&h('div',{className:'flex gap-2'},
+      !isSaving&&h('div',{className:'flex gap-2'},
         h('button',{type:'button',onClick:()=>{setIsTransfer(false);set('type','expense');},className:`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${!isTransfer&&form.type==='expense'?'bg-rose-500 text-white':'bg-slate-100 text-slate-500'}`},'⬇ Gasto'),
         h('button',{type:'button',onClick:()=>{setIsTransfer(false);set('type','income');},className:`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${!isTransfer&&form.type==='income'?'bg-emerald-500 text-white':'bg-slate-100 text-slate-500'}`},'⬆ Ingreso'),
         h('button',{type:'button',onClick:()=>setIsTransfer(true),className:`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${isTransfer?'bg-indigo-600 text-white':'bg-slate-100 text-slate-500'}`},'↔ Traspaso')
       ),
-      // Si es edición (no transfer nuevo), mostrar los botones originales
-      !isSaving&&initialData&&!isTransfer&&h('div',{className:'flex gap-2'},[['expense','⬇ Gasto'],['income','⬆ Ingreso']].map(([t,label])=>h('button',{key:t,type:'button',onClick:()=>set('type',t),className:`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${form.type===t?(t==='income'?'bg-emerald-500 text-white':'bg-rose-500 text-white'):'bg-slate-100 text-slate-500'}`},label))),
+      // (botones de edición unificados con los de creación — se eliminó el bloque separado)
 
       !isSaving&&h('div',{className:'flex gap-2'},['ARS','USD'].map(c=>h('button',{key:c,type:'button',onClick:()=>set('currency',c),className:`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${form.currency===c?'bg-indigo-600 text-white':'bg-slate-100 text-slate-500'}`},c==='ARS'?'$ Pesos':'US$ Dólares'))),
 
@@ -1809,10 +1814,30 @@ function FinanzasView({ expenses, setExpenses, wallets, setWallets, services, se
   const openEdit=exp=>{setEditingExp(exp);setIsSavingCtx(exp.isSaving??false);setShowModal(true);};
   const handleSubmit=data=>{
     if (Array.isArray(data)) {
-      // Traspaso: dos registros a la vez
-      setExpenses(p=>[...data,...p]);
+      // Traspaso nuevo: insertar dos registros
+      if (editingExp) {
+        // Estaba editando un movimiento y lo convirtió a traspaso — reemplazar el original por los dos nuevos
+        setExpenses(p=>[...data,...p.filter(x=>x.id!==editingExp.id)]);
+      } else {
+        setExpenses(p=>[...data,...p]);
+      }
     } else if(editingExp){
-      setExpenses(p=>p.map(x=>x.id===editingExp.id?data:x));
+      if (editingExp.isTransfer && editingExp.transferPairId && !data.isTransfer) {
+        // Convirtió un traspaso en gasto/ingreso normal — eliminar el par y guardar el editado
+        setExpenses(p=>[data,...p.filter(x=>x.id!==editingExp.id&&x.transferPairId!==editingExp.transferPairId)]);
+      } else if (editingExp.isTransfer && editingExp.transferPairId && data.isTransfer) {
+        // Editó un traspaso existente — actualizar ambos registros del par
+        setExpenses(p=>p.map(x=>{
+          if (x.id===editingExp.id) return data;
+          if (x.transferPairId===editingExp.transferPairId && x.id!==editingExp.id) {
+            // Actualizar el par con el mismo monto, fecha y descripción
+            return {...x, amount:data.amount, date:data.date, description:data.description};
+          }
+          return x;
+        }));
+      } else {
+        setExpenses(p=>p.map(x=>x.id===editingExp.id?data:x));
+      }
     } else {
       setExpenses(p=>[data,...p]);
     }
@@ -1821,13 +1846,20 @@ function FinanzasView({ expenses, setExpenses, wallets, setWallets, services, se
   const handleDelete=exp=>{
     const id = typeof exp==='object' ? exp.id : exp;
     const target = typeof exp==='object' ? exp : expenses.find(x=>x.id===id);
-    const msg = target?.linkedServiceId
-      ? `¿Eliminar este movimiento? También se va a quitar del historial del servicio "${target.linkedServiceName}".`
-      : '¿Eliminar movimiento?';
+    const isTransferDel = target?.isTransfer && target?.transferPairId;
+    const msg = isTransferDel
+      ? '¿Eliminar este traspaso? Se van a eliminar ambos registros (egreso e ingreso).'
+      : target?.linkedServiceId
+        ? `¿Eliminar este movimiento? También se va a quitar del historial del servicio "${target.linkedServiceName}".`
+        : '¿Eliminar movimiento?';
     if (!confirm(msg)) return;
-    setExpenses(p=>p.filter(x=>x.id!==id));
-    if (target?.linkedServiceId) {
-      setServices(prev=>prev.map(s=>s.id===target.linkedServiceId?{...s,paymentHistory:(s.paymentHistory||[]).filter(pmt=>pmt.expenseId!==id)}:s));
+    if (isTransferDel) {
+      setExpenses(p=>p.filter(x=>x.transferPairId!==target.transferPairId));
+    } else {
+      setExpenses(p=>p.filter(x=>x.id!==id));
+      if (target?.linkedServiceId) {
+        setServices(prev=>prev.map(s=>s.id===target.linkedServiceId?{...s,paymentHistory:(s.paymentHistory||[]).filter(pmt=>pmt.expenseId!==id)}:s));
+      }
     }
   };
   const SUBTABS=[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'expenses',icon:'💸',label:'Movimientos'},{id:'wallets',icon:'💳',label:'Billeteras'},{id:'services',icon:'🔌',label:'Servicios'},{id:'reports',icon:'📈',label:'Reportes'}];
@@ -1843,7 +1875,7 @@ function FinanzasView({ expenses, setExpenses, wallets, setWallets, services, se
           sub==='services'&&h(ServicesView,{services,setServices,wallets,setExpenses,dolarBlue,currentMonth,currentYear,onOpenDetail:setDetailServiceId}),
           sub==='reports'&&h(ReportsView,{expenses,categories,wallets,dolarBlue,currentYear})
         ),
-    showModal&&h(ExpenseModal,{categories,wallets,onSubmit:handleSubmit,onCancel:()=>{setShowModal(false);setEditingExp(null);},onAddCategory:cat=>{setCategories(prev=>[...prev,cat]);},initialData:editingExp,isSavingContext:isSavingCtx,savingTypeContext:savingTypeCtx})
+    showModal&&h(ExpenseModal,{categories,wallets,expenses,onSubmit:handleSubmit,onCancel:()=>{setShowModal(false);setEditingExp(null);},onAddCategory:cat=>{setCategories(prev=>[...prev,cat]);},initialData:editingExp,isSavingContext:isSavingCtx,savingTypeContext:savingTypeCtx})
   );
 }
 
