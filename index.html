@@ -605,6 +605,7 @@ function SaludView({ lenses, setLenses, lensStock, setLensStock, purchases, setP
 function ExpenseModal({ categories, wallets, onSubmit, onCancel, onAddCategory, initialData, isSavingContext, savingTypeContext }) {
   const savingCat = categories.find(c=>c.isSavingCategory);
   const [isSaving] = useState(isSavingContext||(initialData?.isSaving??false));
+  const [isTransfer, setIsTransfer] = useState(initialData?.isTransfer??false);
   const isServiceLinked = !!initialData?.linkedServiceId;
   const defaultWalletId = isSavingContext
     ? (initialData?.walletId ?? wallets.find(w=>(w.name||'').toLowerCase().includes('efectivo'))?.id ?? wallets[0]?.id ?? '')
@@ -616,12 +617,30 @@ function ExpenseModal({ categories, wallets, onSubmit, onCancel, onAddCategory, 
     categoryId:initialData?.categoryId??(isSavingContext?savingCat?.id:categories.find(c=>!c.isSavingCategory&&c.id!=='cat-income')?.id??''),
     walletId:defaultWalletId, date:initialData?.date??todayStr(),
     currency: isSaving ? 'USD' : (initialData?.currency??'ARS'),
+    toWalletId: wallets[1]?.id ?? wallets[0]?.id ?? '',
   });
   const [newCatName, setNewCatName] = useState('');
   const [showNewCat, setShowNewCat] = useState(false);
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
   const visibleCats=isSaving?categories.filter(c=>c.isSavingCategory):categories.filter(c=>!c.isSavingCategory);
-  const handleSubmit=e=>{e.preventDefault();if(!form.amount||!form.walletId)return;onSubmit({...initialData,...form,amount:parseAmountInput(form.amount),description:form.description.trim(),isSaving,categoryId:isSaving?savingCat?.id:form.categoryId,currency:isSaving?'USD':form.currency,id:initialData?.id??uid()});};
+
+  const handleSubmit=e=>{
+    e.preventDefault();
+    if(!form.amount||!form.walletId) return;
+    const amount = parseAmountInput(form.amount);
+    const description = form.description.trim();
+    const base = {date:form.date, currency:form.currency, isTransfer:true, description:description||'Transferencia entre billeteras'};
+    if (isTransfer) {
+      // Crear dos registros: egreso en origen, ingreso en destino
+      onSubmit([
+        {...base, id:uid(), type:'expense', amount, walletId:form.walletId, categoryId:'cat-transfer', isSaving:false},
+        {...base, id:uid(), type:'income',  amount, walletId:form.toWalletId, categoryId:'cat-transfer', isSaving:false},
+      ]);
+    } else {
+      onSubmit({...initialData,...form,amount,description,isSaving,categoryId:isSaving?savingCat?.id:form.categoryId,currency:isSaving?'USD':form.currency,id:initialData?.id??uid()});
+    }
+  };
+
   const handleAddCat = () => {
     const name = newCatName.trim();
     if (!name) return;
@@ -632,15 +651,26 @@ function ExpenseModal({ categories, wallets, onSubmit, onCancel, onAddCategory, 
     setNewCatName('');
     setShowNewCat(false);
   };
+
   return h(Modal,{onClose:onCancel},
     h('form',{onSubmit:handleSubmit,className:'bg-white rounded-t-3xl md:rounded-3xl p-6 space-y-4'},
       h('div',{className:'flex justify-between items-center'},
-        h('h3',{className:'text-lg font-black'},initialData?'Editar Movimiento':isSaving?(form.type==='income'?'🐷 Depositar USD':'🐷 Retirar USD'):'+ Nuevo Movimiento'),
+        h('h3',{className:'text-lg font-black'},initialData?'Editar Movimiento':isSaving?(form.type==='income'?'🐷 Depositar USD':'🐷 Retirar USD'):isTransfer?'↔ Entre Billeteras':'+ Nuevo Movimiento'),
         h('button',{type:'button',onClick:onCancel,className:'text-slate-400 text-2xl'},'×')
       ),
       isServiceLinked&&h('p',{className:'text-xs text-amber-700 font-bold bg-amber-50 p-3 rounded-xl'},`🔌 Este movimiento viene del pago del servicio "${initialData.linkedServiceName}". Si editás el monto aquí, el historial del servicio no se actualiza automáticamente.`),
-      h('div',{className:'flex gap-2'},(isSaving?[['income','⬆ Depositar'],['expense','⬇ Retirar']]:[['expense','⬇ Gasto'],['income','⬆ Ingreso']]).map(([t,label])=>h('button',{key:t,type:'button',onClick:()=>set('type',t),className:`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${form.type===t?(t==='income'?'bg-emerald-500 text-white':'bg-rose-500 text-white'):'bg-slate-100 text-slate-500'}`},label))),
+
+      // Selector de modo: Gasto / Ingreso / Entre billeteras
+      !isSaving&&!initialData&&h('div',{className:'flex gap-2'},
+        h('button',{type:'button',onClick:()=>{setIsTransfer(false);set('type','expense');},className:`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${!isTransfer&&form.type==='expense'?'bg-rose-500 text-white':'bg-slate-100 text-slate-500'}`},'⬇ Gasto'),
+        h('button',{type:'button',onClick:()=>{setIsTransfer(false);set('type','income');},className:`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${!isTransfer&&form.type==='income'?'bg-emerald-500 text-white':'bg-slate-100 text-slate-500'}`},'⬆ Ingreso'),
+        h('button',{type:'button',onClick:()=>setIsTransfer(true),className:`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${isTransfer?'bg-indigo-600 text-white':'bg-slate-100 text-slate-500'}`},'↔ Traspaso')
+      ),
+      // Si es edición (no transfer nuevo), mostrar los botones originales
+      !isSaving&&initialData&&!isTransfer&&h('div',{className:'flex gap-2'},[['expense','⬇ Gasto'],['income','⬆ Ingreso']].map(([t,label])=>h('button',{key:t,type:'button',onClick:()=>set('type',t),className:`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${form.type===t?(t==='income'?'bg-emerald-500 text-white':'bg-rose-500 text-white'):'bg-slate-100 text-slate-500'}`},label))),
+
       !isSaving&&h('div',{className:'flex gap-2'},['ARS','USD'].map(c=>h('button',{key:c,type:'button',onClick:()=>set('currency',c),className:`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${form.currency===c?'bg-indigo-600 text-white':'bg-slate-100 text-slate-500'}`},c==='ARS'?'$ Pesos':'US$ Dólares'))),
+
       h('div',{className:'space-y-1'},
         h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Monto '+(isSaving?'(USD)':`(${form.currency})`)),
         h('input',{type:'text',inputMode:'decimal',required:true,value:form.amount,
@@ -656,27 +686,45 @@ function ExpenseModal({ categories, wallets, onSubmit, onCancel, onAddCategory, 
           h('span',{className:'text-[10px] text-slate-400 font-bold'},'· tocá afuera para confirmar')
         )
       ),
-      h('div',{className:'space-y-1'},h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Descripción (opcional)'),h('input',{type:'text',value:form.description,onChange:e=>set('description',e.target.value),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-indigo-400 transition-all',placeholder:'Ej: Supermercado'})),
-      !isSaving&&h('div',{className:'space-y-2'},
-        h('div',{className:'flex items-center justify-between'},
-          h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Categoría'),
-          h('button',{type:'button',onClick:()=>setShowNewCat(v=>!v),className:'text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:text-indigo-800 transition-colors'},showNewCat?'✕ Cancelar':'+ Nueva')
-        ),
-        showNewCat
-          ? h('div',{className:'flex gap-2'},
-              h('div',{className:'flex-1 relative'},
-                h('span',{className:'absolute left-3 top-1/2 -translate-y-1/2 text-lg pointer-events-none'},guessEmoji(newCatName)),
-                h('input',{type:'text',autoFocus:true,placeholder:'Ej: Mascotas, Gym...',value:newCatName,onChange:e=>setNewCatName(e.target.value),onKeyDown:e=>{if(e.key==='Enter'){e.preventDefault();handleAddCat();}},className:'w-full pl-9 pr-3 py-3 bg-slate-50 border border-indigo-300 rounded-2xl outline-none font-bold text-sm focus:border-indigo-500 transition-all'})
+
+      h('div',{className:'space-y-1'},h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Descripción (opcional)'),h('input',{type:'text',value:form.description,onChange:e=>set('description',e.target.value),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-indigo-400 transition-all',placeholder:isTransfer?'Ej: Paso plata a Santander':'Ej: Supermercado'})),
+
+      isTransfer
+        ? h('div',{className:'space-y-3'},
+            h('div',{className:'space-y-1'},
+              h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Desde (billetera origen)'),
+              h('select',{value:form.walletId,onChange:e=>set('walletId',e.target.value),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-indigo-400 transition-all'},wallets.map(w=>h('option',{key:w.id,value:w.id},w.name)))
+            ),
+            h('div',{className:'flex items-center justify-center text-slate-400 font-black text-lg'},'↓'),
+            h('div',{className:'space-y-1'},
+              h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Hacia (billetera destino)'),
+              h('select',{value:form.toWalletId,onChange:e=>set('toWalletId',e.target.value),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-indigo-400 transition-all'},wallets.map(w=>h('option',{key:w.id,value:w.id},w.name)))
+            ),
+            h('p',{className:'text-xs text-indigo-600 font-bold bg-indigo-50 p-3 rounded-xl'},'↔ Este traspaso no va a contar como ingreso ni gasto en el dashboard.')
+          )
+        : h('div',{className:'space-y-2'},
+            !isSaving&&h('div',null,
+              h('div',{className:'flex items-center justify-between'},
+                h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Categoría'),
+                h('button',{type:'button',onClick:()=>setShowNewCat(v=>!v),className:'text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:text-indigo-800 transition-colors'},showNewCat?'✕ Cancelar':'+ Nueva')
               ),
-              h('button',{type:'button',onClick:handleAddCat,disabled:!newCatName.trim(),className:'px-4 py-3 bg-indigo-600 text-white rounded-2xl font-black text-xs disabled:opacity-40 transition-all'},'Crear')
-            )
-          : h('select',{value:form.categoryId,onChange:e=>set('categoryId',e.target.value),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-indigo-400 transition-all'},
-              visibleCats.map(c=>h('option',{key:c.id,value:c.id},c.icon+' '+c.name))
-            )
-      ),
-      h('div',{className:'space-y-1'},h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Billetera / Medio de pago'),h('select',{value:form.walletId,onChange:e=>set('walletId',e.target.value),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-indigo-400 transition-all'},wallets.map(w=>h('option',{key:w.id,value:w.id},w.name)))),
+              showNewCat
+                ? h('div',{className:'flex gap-2'},
+                    h('div',{className:'flex-1 relative'},
+                      h('span',{className:'absolute left-3 top-1/2 -translate-y-1/2 text-lg pointer-events-none'},guessEmoji(newCatName)),
+                      h('input',{type:'text',autoFocus:true,placeholder:'Ej: Mascotas, Gym...',value:newCatName,onChange:e=>setNewCatName(e.target.value),onKeyDown:e=>{if(e.key==='Enter'){e.preventDefault();handleAddCat();}},className:'w-full pl-9 pr-3 py-3 bg-slate-50 border border-indigo-300 rounded-2xl outline-none font-bold text-sm focus:border-indigo-500 transition-all'})
+                    ),
+                    h('button',{type:'button',onClick:handleAddCat,disabled:!newCatName.trim(),className:'px-4 py-3 bg-indigo-600 text-white rounded-2xl font-black text-xs disabled:opacity-40 transition-all'},'Crear')
+                  )
+                : h('select',{value:form.categoryId,onChange:e=>set('categoryId',e.target.value),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-indigo-400 transition-all'},
+                    visibleCats.map(c=>h('option',{key:c.id,value:c.id},c.icon+' '+c.name))
+                  )
+            ),
+            h('div',{className:'space-y-1'},h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Billetera / Medio de pago'),h('select',{value:form.walletId,onChange:e=>set('walletId',e.target.value),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-indigo-400 transition-all'},wallets.map(w=>h('option',{key:w.id,value:w.id},w.name))))
+          ),
+
       h('div',{className:'space-y-1'},h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Fecha'),h('input',{type:'date',value:form.date,onChange:e=>set('date',e.target.value),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-indigo-400 transition-all'})),
-      h('button',{type:'submit',className:'w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all'},initialData?'Guardar Cambios':'+ Agregar')
+      h('button',{type:'submit',className:`w-full py-4 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg transition-all ${isTransfer?'bg-indigo-600 shadow-indigo-200 hover:bg-indigo-700':'bg-indigo-600 shadow-indigo-200 hover:bg-indigo-700'}`},initialData?'Guardar Cambios':isTransfer?'↔ Registrar Traspaso':'+ Agregar')
     )
   );
 }
@@ -687,8 +735,8 @@ function Dashboard({ expenses, categories, wallets, services, currentMonth, curr
 
   // Ingresos: solo cuando la categoría es específicamente 'Ingresos' (cat-income), no traspasos
   const totals=useMemo(()=>{
-    const income=monthExp.filter(x=>!x.isSaving&&x.categoryId==='cat-income').reduce((s,x)=>s+x.amount,0);
-    const expense=monthExp.filter(x=>!x.isSaving&&x.type==='expense').reduce((s,x)=>s+x.amount,0);
+    const income=monthExp.filter(x=>!x.isSaving&&!x.isTransfer&&x.categoryId==='cat-income').reduce((s,x)=>s+x.amount,0);
+    const expense=monthExp.filter(x=>!x.isSaving&&!x.isTransfer&&x.type==='expense').reduce((s,x)=>s+x.amount,0);
     return{income,expense,balance:income-expense};
   },[monthExp]);
 
@@ -1684,7 +1732,7 @@ function SavingsView({ expenses, dolarBlue, onAddIncome, onAddExpense, onEdit, o
 }
 
 function ReportsView({ expenses, categories, wallets, dolarBlue, currentYear }) {
-  const monthlyData=useMemo(()=>MONTHS.map((name,i)=>{const mx=expenses.filter(x=>{const d=new Date(x.date);return d.getUTCMonth()===i&&d.getUTCFullYear()===currentYear&&!x.isSaving&&(!x.currency||x.currency==='ARS');});return{name:name.slice(0,3),Ingresos:mx.filter(x=>x.type==='income').reduce((s,x)=>s+x.amount,0),Gastos:mx.filter(x=>x.type==='expense').reduce((s,x)=>s+x.amount,0)};}),[expenses,currentYear]);
+  const monthlyData=useMemo(()=>MONTHS.map((name,i)=>{const mx=expenses.filter(x=>{const d=new Date(x.date);return d.getUTCMonth()===i&&d.getUTCFullYear()===currentYear&&!x.isSaving&&!x.isTransfer&&(!x.currency||x.currency==='ARS');});return{name:name.slice(0,3),Ingresos:mx.filter(x=>x.categoryId==='cat-income').reduce((s,x)=>s+x.amount,0),Gastos:mx.filter(x=>x.type==='expense').reduce((s,x)=>s+x.amount,0)};}),[expenses,currentYear]);
 
   const catData=useMemo(()=>{const map={};expenses.filter(x=>x.type==='expense'&&!x.isSaving&&new Date(x.date).getUTCFullYear()===currentYear).forEach(x=>{const cat=categories.find(c=>c.id===x.categoryId);if(!cat)return;map[cat.id]=map[cat.id]||{name:cat.name,value:0,color:cat.color};map[cat.id].value+=x.amount;});return Object.values(map).sort((a,b)=>b.value-a.value).slice(0,6);},[expenses,categories,currentYear]);
 
@@ -1759,7 +1807,17 @@ function FinanzasView({ expenses, setExpenses, wallets, setWallets, services, se
   const [detailServiceId,setDetailServiceId]=useState(null);
   const openAdd=(isSaving=false,savingType='income')=>{setIsSavingCtx(isSaving);setSavingTypeCtx(savingType);setEditingExp(null);setShowModal(true);};
   const openEdit=exp=>{setEditingExp(exp);setIsSavingCtx(exp.isSaving??false);setShowModal(true);};
-  const handleSubmit=data=>{if(editingExp){setExpenses(p=>p.map(x=>x.id===editingExp.id?data:x));}else{setExpenses(p=>[data,...p]);}setShowModal(false);setEditingExp(null);};
+  const handleSubmit=data=>{
+    if (Array.isArray(data)) {
+      // Traspaso: dos registros a la vez
+      setExpenses(p=>[...data,...p]);
+    } else if(editingExp){
+      setExpenses(p=>p.map(x=>x.id===editingExp.id?data:x));
+    } else {
+      setExpenses(p=>[data,...p]);
+    }
+    setShowModal(false);setEditingExp(null);
+  };
   const handleDelete=exp=>{
     const id = typeof exp==='object' ? exp.id : exp;
     const target = typeof exp==='object' ? exp : expenses.find(x=>x.id===id);
@@ -1795,7 +1853,7 @@ function HomeView({ expenses, wallets, services, lenses, haircuts, lensStock, do
   const lastLens=useMemo(()=>[...lenses].sort((a,b)=>new Date(b.date)-new Date(a.date))[0],[lenses]);
   const lastHair=useMemo(()=>[...haircuts].sort((a,b)=>new Date(b.date)-new Date(a.date))[0],[haircuts]);
   const monthExp=useMemo(()=>expenses.filter(x=>{const d=new Date(x.date);return d.getUTCMonth()===currentMonth&&d.getUTCFullYear()===currentYear;}),[expenses,currentMonth,currentYear]);
-  const balance=useMemo(()=>{const income=monthExp.filter(x=>!x.isSaving&&x.type==='income').reduce((s,x)=>s+x.amount,0);const expense=monthExp.filter(x=>!x.isSaving&&x.type==='expense').reduce((s,x)=>s+x.amount,0);return income-expense;},[monthExp]);
+  const balance=useMemo(()=>{const income=monthExp.filter(x=>!x.isSaving&&!x.isTransfer&&x.categoryId==='cat-income').reduce((s,x)=>s+x.amount,0);const expense=monthExp.filter(x=>!x.isSaving&&!x.isTransfer&&x.type==='expense').reduce((s,x)=>s+x.amount,0);return income-expense;},[monthExp]);
   const efectivoId=wallets.find(w=>(w.name||'').toLowerCase().includes('efectivo'))?.id??'w-1';
   const usdEfectivo=useMemo(()=>expenses.filter(x=>x.walletId===efectivoId&&x.currency==='USD').reduce((s,x)=>x.type==='income'?s+x.amount:s-x.amount,0),[expenses,efectivoId]);
   const upcomingDue = useMemo(()=>services.filter(sv=>sv.dueDay&&sv.active!==false).map(sv=>({...sv,days:daysUntilDue(sv.dueDay)})).sort((a,b)=>a.days-b.days).slice(0,3),[services]);
