@@ -1928,8 +1928,59 @@ function HomeView({ expenses, wallets, services, lenses, haircuts, lensStock, do
 }
 
 // ── AJUSTES VIEW ──────────────────────────────────────────────────────────────
-function AjustesView({ onExport, onImport, onSignOut, userEmail }) {
+function AjustesView({ onExport, onImport, onSignOut, userEmail, services, setServices }) {
   const fileRef=useRef(null);
+  const [riverStatus, setRiverStatus] = useState('');
+
+  const importRiverHistory = () => {
+    const uid = () => Math.random().toString(36).substr(2,9);
+    const MONTHS = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    const payments = [
+      {date:"2026-07-01",amountARS:10930}, {date:"2026-06-01",amountARS:10700},
+      {date:"2026-05-01",amountARS:10420}, {date:"2026-04-01",amountARS:10080},
+      {date:"2026-03-01",amountARS:9800},  {date:"2026-02-01",amountARS:9530},
+      {date:"2026-01-01",amountARS:9270},  {date:"2025-12-01",amountARS:9050},
+      {date:"2025-11-01",amountARS:8850},  {date:"2025-10-01",amountARS:8670},
+      {date:"2025-09-01",amountARS:8510},  {date:"2025-08-01",amountARS:8360},
+      {date:"2025-07-01",amountARS:8240},  {date:"2025-06-01",amountARS:8120},
+      {date:"2025-05-01",amountARS:7900},  {date:"2025-04-01",amountARS:7620},
+      {date:"2025-03-01",amountARS:7450},  {date:"2025-02-01",amountARS:7290},
+      {date:"2025-01-01",amountARS:7100},  {date:"2024-12-01",amountARS:6910},
+      {date:"2024-11-01",amountARS:6730},  {date:"2024-10-01",amountARS:6500},
+      {date:"2024-09-01",amountARS:6240},  {date:"2024-08-01",amountARS:6000},
+      {date:"2023-07-01",amountARS:1530},  {date:"2023-06-01",amountARS:1420},
+      {date:"2023-05-01",amountARS:1310},  {date:"2023-04-01",amountARS:1220},
+      {date:"2023-03-01",amountARS:1150},  {date:"2023-02-01",amountARS:1090},
+      {date:"2023-01-01",amountARS:1040},  {date:"2022-12-01",amountARS:1000},
+      {date:"2022-11-01",amountARS:895},   {date:"2022-10-01",amountARS:845},
+      {date:"2022-09-01",amountARS:845},
+    ].map(p => {
+      const [y,m] = p.date.split('-');
+      return {...p, id:uid(), amountUSD:null, currency:'ARS', period:`${MONTHS[parseInt(m)-1]} ${y}`, dolarBlueAtPayment:null, walletId:null, expenseId:null};
+    });
+
+    const riverIdx = services.findIndex(s => (s.name||'').toLowerCase().includes('river'));
+    if (riverIdx === -1) {
+      setRiverStatus('❌ No encontré un servicio con "River" en el nombre. Verificá que exista en Servicios.');
+      return;
+    }
+
+    const river = services[riverIdx];
+    const existingPeriods = new Set((river.paymentHistory||[]).map(p=>p.period));
+    const newPayments = payments.filter(p=>!existingPeriods.has(p.period));
+
+    if (newPayments.length === 0) {
+      setRiverStatus('ℹ️ Todos los períodos ya estaban cargados.');
+      return;
+    }
+
+    const updatedHistory = [...(river.paymentHistory||[]), ...newPayments]
+      .sort((a,b)=>new Date(a.date)-new Date(b.date));
+
+    setServices(prev => prev.map((s,i) => i===riverIdx ? {...s, paymentHistory:updatedHistory} : s));
+    setRiverStatus(`✅ Se cargaron ${newPayments.length} pagos en "${river.name}".`);
+  };
+
   return h('div',{className:'space-y-6 max-w-xl'},
     h('div',{className:'card p-5 flex items-center gap-4'},
       h('div',{className:'w-12 h-12 rounded-2xl bg-indigo-100 flex items-center justify-center text-2xl'},'👤'),
@@ -1938,6 +1989,13 @@ function AjustesView({ onExport, onImport, onSignOut, userEmail }) {
     h('div',{className:'card divide-y divide-slate-50'},
       h('div',{className:'p-5 flex justify-between items-center'},h('div',null,h('p',{className:'font-black text-slate-800'},'Exportar datos'),h('p',{className:'text-xs text-slate-400 mt-0.5'},'Backup en formato JSON')),h('button',{onClick:onExport,className:'bg-indigo-600 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest'},'⬇ Exportar')),
       h('div',{className:'p-5 flex justify-between items-center'},h('div',null,h('p',{className:'font-black text-slate-800'},'Importar datos'),h('p',{className:'text-xs text-slate-400 mt-0.5'},'Cargá un JSON exportado')),h('div',null,h('input',{ref:fileRef,type:'file',accept:'.json',className:'hidden',onChange:onImport}),h('button',{onClick:()=>fileRef.current?.click(),className:'bg-slate-100 text-slate-700 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest'},'⬆ Importar'))),
+      h('div',{className:'p-5 space-y-2'},
+        h('div',{className:'flex justify-between items-center'},
+          h('div',null,h('p',{className:'font-black text-slate-800'},'River ID — Historial'),h('p',{className:'text-xs text-slate-400 mt-0.5'},'Carga automática sept/22 → jul/26')),
+          h('button',{onClick:importRiverHistory,className:'bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-emerald-700 transition-colors'},'⚽ Cargar')
+        ),
+        riverStatus&&h('p',{className:'text-xs font-bold text-slate-600 bg-slate-50 p-2 rounded-xl'},riverStatus)
+      ),
       h('div',{className:'p-5 flex justify-between items-center'},h('div',null,h('p',{className:'font-black text-rose-600'},'Cerrar sesión'),h('p',{className:'text-xs text-slate-400 mt-0.5'},'Salir de la app')),h('button',{onClick:onSignOut,className:'bg-rose-50 text-rose-600 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-rose-100 transition-colors'},'Salir'))
     ),
     h('div',{className:'bg-slate-100 p-4 rounded-2xl text-center'},h('p',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'MiApp Personal · ☁️ Sincronizado con Firebase'))
@@ -2146,7 +2204,7 @@ function App() {
       tab==='home'     && h(HomeView,{expenses,wallets,services,lenses,haircuts,lensStock,dolarBlue,currentMonth:month,currentYear:year,setTab}),
       tab==='finanzas' && h(FinanzasView,{expenses,setExpenses,wallets,setWallets,services,setServices,categories,setCategories,dolarBlue,currentMonth:month,currentYear:year}),
       tab==='salud'    && h(SaludView,{lenses,setLenses,lensStock,setLensStock,purchases,setPurchases,haircuts,setHaircuts,weightLogs,setWeightLogs}),
-      tab==='ajustes'  && h(AjustesView,{onExport:handleExport,onImport:handleImport,onSignOut:handleSignOut,userEmail:user?.email})
+      tab==='ajustes'  && h(AjustesView,{onExport:handleExport,onImport:handleImport,onSignOut:handleSignOut,userEmail:user?.email,services,setServices})
     ),
     // Bottom nav
     h('nav',{className:'fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur border-t border-slate-100 flex md:hidden z-40'},
