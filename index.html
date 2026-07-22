@@ -606,6 +606,8 @@ function ExpenseModal({ categories, wallets, expenses, onSubmit, onCancel, onAdd
   const savingCat = categories.find(c=>c.isSavingCategory);
   const [isSaving] = useState(isSavingContext||(initialData?.isSaving??false));
   const [isTransfer, setIsTransfer] = useState(initialData?.isTransfer??false);
+  const [isCurrencySwap, setIsCurrencySwap] = useState(initialData?.isCurrencySwap??false);
+  const [swapDirection, setSwapDirection] = useState(initialData?.swapDirection??'ARS→USD'); // 'ARS→USD' | 'USD→ARS'
   // Para edición de traspaso: encontrar la billetera destino buscando el par
   const transferPair = initialData?.isTransfer && initialData?.transferPairId
     ? (expenses||[]).find(x=>x.transferPairId===initialData.transferPairId&&x.id!==initialData.id)
@@ -622,6 +624,7 @@ function ExpenseModal({ categories, wallets, expenses, onSubmit, onCancel, onAdd
     walletId:defaultWalletId, date:initialData?.date??todayStr(),
     currency: isSaving ? 'USD' : (initialData?.currency??'ARS'),
     toWalletId: transferPair?.walletId ?? wallets[1]?.id ?? wallets[0]?.id ?? '',
+    amountTo: initialData?.amountTo ? fmtAmountInput(initialData.amountTo) : '',
   });
   const [newCatName, setNewCatName] = useState('');
   const [showNewCat, setShowNewCat] = useState(false);
@@ -632,16 +635,28 @@ function ExpenseModal({ categories, wallets, expenses, onSubmit, onCancel, onAdd
     e.preventDefault();
     if(!form.amount||!form.walletId) return;
     const amount = parseAmountInput(form.amount);
+    const amountTo = parseAmountInput(form.amountTo);
     const description = form.description.trim();
-    const base = {date:form.date, currency:form.currency, isTransfer:true, description:description||'Transferencia entre billeteras'};
+
     if (isTransfer) {
-      // Crear dos registros vinculados por transferPairId
       const pairId = uid();
       const idOut = uid(), idIn = uid();
-      onSubmit([
-        {...base, id:idOut, type:'expense', amount, walletId:form.walletId,   categoryId:'cat-transfer', isSaving:false, transferPairId:pairId, transferRole:'out'},
-        {...base, id:idIn,  type:'income',  amount, walletId:form.toWalletId, categoryId:'cat-transfer', isSaving:false, transferPairId:pairId, transferRole:'in'},
-      ]);
+      const base = {date:form.date, isTransfer:true, isCurrencySwap, swapDirection, description:description||(isCurrencySwap?`Cambio ${swapDirection}`:'Transferencia entre billeteras'), categoryId:'cat-transfer', isSaving:false, transferPairId:pairId};
+
+      if (isCurrencySwap) {
+        // Traspaso de moneda: montos y monedas distintas en cada lado
+        const arsIsOut = swapDirection==='ARS→USD';
+        onSubmit([
+          {...base, id:idOut, type:'expense', amount,   currency: arsIsOut?'ARS':'USD', walletId:form.walletId,   transferRole:'out'},
+          {...base, id:idIn,  type:'income',  amount:amountTo, currency: arsIsOut?'USD':'ARS', walletId:form.toWalletId, transferRole:'in'},
+        ]);
+      } else {
+        // Traspaso normal: mismo monto y moneda
+        onSubmit([
+          {...base, id:idOut, type:'expense', amount, currency:form.currency, walletId:form.walletId,   transferRole:'out'},
+          {...base, id:idIn,  type:'income',  amount, currency:form.currency, walletId:form.toWalletId, transferRole:'in'},
+        ]);
+      }
     } else {
       onSubmit({...initialData,...form,amount,description,isSaving,categoryId:isSaving?savingCat?.id:form.categoryId,currency:isSaving?'USD':form.currency,id:initialData?.id??uid()});
     }
@@ -674,9 +689,9 @@ function ExpenseModal({ categories, wallets, expenses, onSubmit, onCancel, onAdd
       ),
       // (botones de edición unificados con los de creación — se eliminó el bloque separado)
 
-      !isSaving&&h('div',{className:'flex gap-2'},['ARS','USD'].map(c=>h('button',{key:c,type:'button',onClick:()=>set('currency',c),className:`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${form.currency===c?'bg-indigo-600 text-white':'bg-slate-100 text-slate-500'}`},c==='ARS'?'$ Pesos':'US$ Dólares'))),
+      !isSaving&&!isTransfer&&h('div',{className:'flex gap-2'},['ARS','USD'].map(c=>h('button',{key:c,type:'button',onClick:()=>set('currency',c),className:`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${form.currency===c?'bg-indigo-600 text-white':'bg-slate-100 text-slate-500'}`},c==='ARS'?'$ Pesos':'US$ Dólares'))),
 
-      h('div',{className:'space-y-1'},
+      !isTransfer&&h('div',{className:'space-y-1'},
         h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Monto '+(isSaving?'(USD)':`(${form.currency})`)),
         h('input',{type:'text',inputMode:'decimal',required:true,value:form.amount,
           onChange:e=>set('amount',fmtWhileTyping(e.target.value)),
@@ -696,6 +711,46 @@ function ExpenseModal({ categories, wallets, expenses, onSubmit, onCancel, onAdd
 
       isTransfer
         ? h('div',{className:'space-y-3'},
+            // Subtipo: entre billeteras o cambio de moneda
+            h('div',{className:'flex gap-2'},
+              h('button',{type:'button',onClick:()=>setIsCurrencySwap(false),className:`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${!isCurrencySwap?'bg-indigo-600 text-white':'bg-slate-100 text-slate-500'}`},'💳 Entre billeteras'),
+              h('button',{type:'button',onClick:()=>setIsCurrencySwap(true),className:`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${isCurrencySwap?'bg-amber-500 text-white':'bg-slate-100 text-slate-500'}`},'💱 Cambio de moneda')
+            ),
+
+            isCurrencySwap&&h('div',{className:'flex gap-2'},
+              h('button',{type:'button',onClick:()=>setSwapDirection('ARS→USD'),className:`flex-1 py-2 rounded-xl text-xs font-black transition-all ${swapDirection==='ARS→USD'?'bg-emerald-600 text-white':'bg-slate-100 text-slate-500'}`},'$ → US$'),
+              h('button',{type:'button',onClick:()=>setSwapDirection('USD→ARS'),className:`flex-1 py-2 rounded-xl text-xs font-black transition-all ${swapDirection==='USD→ARS'?'bg-emerald-600 text-white':'bg-slate-100 text-slate-500'}`},'US$ → $')
+            ),
+
+            // Monto que sale
+            h('div',{className:'space-y-1'},
+              h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},
+                isCurrencySwap ? `Monto que entregás (${swapDirection==='ARS→USD'?'ARS':'USD'})` : 'Monto'
+              ),
+              h('input',{type:'text',inputMode:'decimal',required:true,value:form.amount,
+                onChange:e=>set('amount',fmtWhileTyping(e.target.value)),
+                onBlur:()=>{const n=parseAmountInput(form.amount);if(n)set('amount',fmtAmountInput(n));},
+                className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-lg focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 transition-all',
+                placeholder:'0'})
+            ),
+
+            // Monto que entra (solo en cambio de moneda)
+            isCurrencySwap&&h('div',{className:'space-y-1'},
+              h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},
+                `Monto que recibís (${swapDirection==='ARS→USD'?'USD':'ARS'})`
+              ),
+              h('input',{type:'text',inputMode:'decimal',required:true,value:form.amountTo,
+                onChange:e=>set('amountTo',fmtWhileTyping(e.target.value)),
+                onBlur:()=>{const n=parseAmountInput(form.amountTo);if(n)set('amountTo',fmtAmountInput(n));},
+                className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-lg focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 transition-all',
+                placeholder:'0'}),
+              form.amount&&form.amountTo&&h('p',{className:'text-[11px] text-slate-400 font-bold px-1'},
+                `Tipo de cambio implícito: ${swapDirection==='ARS→USD'
+                  ? fmt(parseAmountInput(form.amount)/parseAmountInput(form.amountTo))+' por dólar'
+                  : fmt(parseAmountInput(form.amountTo)/parseAmountInput(form.amount))+' por dólar'}`
+              )
+            ),
+
             h('div',{className:'space-y-1'},
               h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Desde (billetera origen)'),
               h('select',{value:form.walletId,onChange:e=>set('walletId',e.target.value),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-indigo-400 transition-all'},wallets.map(w=>h('option',{key:w.id,value:w.id},w.name)))
@@ -705,7 +760,9 @@ function ExpenseModal({ categories, wallets, expenses, onSubmit, onCancel, onAdd
               h('label',{className:'text-[10px] font-black text-slate-400 uppercase tracking-widest'},'Hacia (billetera destino)'),
               h('select',{value:form.toWalletId,onChange:e=>set('toWalletId',e.target.value),className:'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm focus:border-indigo-400 transition-all'},wallets.map(w=>h('option',{key:w.id,value:w.id},w.name)))
             ),
-            h('p',{className:'text-xs text-indigo-600 font-bold bg-indigo-50 p-3 rounded-xl'},'↔ Este traspaso no va a contar como ingreso ni gasto en el dashboard.')
+            h('p',{className:`text-xs font-bold p-3 rounded-xl ${isCurrencySwap?'text-amber-700 bg-amber-50':'text-indigo-600 bg-indigo-50'}`},
+              isCurrencySwap ? '💱 Este cambio de moneda no va a contar como ingreso ni gasto.' : '↔ Este traspaso no va a contar como ingreso ni gasto.'
+            )
           )
         : h('div',{className:'space-y-2'},
             !isSaving&&h('div',null,
